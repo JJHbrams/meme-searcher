@@ -1,0 +1,37 @@
+# Meme Searcher for Windows
+
+밈 키워드로 이미지와 GIF를 찾고, 결과를 Windows 클립보드에 복사하는 데스크톱 앱입니다. 이 저장소와 v1.0.0 배포본은 **Windows 전용**입니다.
+
+## 설치와 실행
+
+Windows 10/11 x64에서 지원합니다. [v1.0.0 릴리스](https://github.com/JJHbrams/meme-searcher/releases/tag/v1.0.0)에서 ZIP을 내려받아 **압축을 폴더 전체로 푼 뒤** `meme_searcher.exe`를 실행하세요. 실행 파일만 따로 옮기면 필요한 DLL과 `data` 폴더가 없어 동작하지 않습니다.
+
+배포본은 코드 서명되지 않은 portable ZIP입니다. Windows SmartScreen 경고가 표시될 수 있습니다.
+
+Windows에 `VCRUNTIME` 또는 `MSVCP` DLL이 없다는 오류가 나면 [Microsoft Visual C++ v14 x64 Redistributable](https://aka.ms/vc14/vc_redist.x64.exe)를 설치하세요. 지원되는 최신 런타임 안내는 [Microsoft 문서](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist/)에서 확인할 수 있습니다. 별도 설치 프로그램은 배포 ZIP에 포함하지 않습니다.
+
+## 사용 방법
+
+1. 처음 실행하면 설정에서 본인의 SerpApi API 키를 입력합니다. 키는 앱의 보안 저장소에 보관되며, 개발·자동화 환경에서는 `SERPAPI_API_KEY` 런타임 환경 변수도 사용할 수 있습니다. 저장소와 배포 파일에는 API 키를 포함하지 않습니다.
+2. 키워드와 필요하면 `#헬다2`처럼 태그를 입력하고 검색합니다. Google과 Naver 검색 결과를 함께 활용하며, Naver는 결과를 얻을 수 있을 때만 보조적으로 반영됩니다.
+3. 결과를 클릭해 미리 본 뒤 복사합니다. 정적 이미지는 DIB 형식으로, GIF는 원본 바이트 파일을 Windows 클립보드(CF_HDROP)에 올려 둡니다. GIF의 실제 움직임을 보존하기 위한 방식이며, 메신저별 붙여넣기 호환성은 아직 보장하지 않습니다. 최종 붙여넣기와 전송은 사용자가 수행합니다.
+
+검색 API 사용량·요금·원본 사이트의 접근 가능 여부는 각 서비스와 결과 사이트의 정책·상태에 따릅니다. 원본 URL이 차단되거나 내려가면 해당 결과는 열거나 복사하지 못할 수 있습니다.
+
+## 개발 빌드
+
+필요한 도구는 Flutter 3.50, Dart 3.14, Visual Studio C++ Build Tools입니다.
+
+```powershell
+flutter pub get
+powershell -NoProfile -File .\tools\prepare-flutter-windows.ps1
+flutter build windows --release
+```
+
+일반 사용자 권한에서 첫 `flutter pub get`이 플러그인 symlink 생성 때문에 실패할 수 있지만, 필요한 manifest는 먼저 작성됩니다. 그 경우 보조 스크립트를 실행해 디렉터리 junction을 준비한 뒤 `flutter pub get`을 한 번 더 실행하고 빌드하세요. Developer Mode나 시스템 전체 보안 설정을 변경하지 않습니다. `flutter_secure_storage_windows`는 Visual Studio ATL 선택 구성 요소 없이 빌드되도록 로컬에 vendoring한 패치를 사용하며, 동작과 라이선스 정보는 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)에 기록했습니다.
+
+Python 서버는 필요하지 않습니다. 앱은 Flutter 네이티브 코드로 실행됩니다.
+
+## 라이선스와 콘텐츠
+
+이 저장소의 자체 소스에는 별도 라이선스가 지정되어 있지 않습니다. 포함된 서드파티 소프트웨어와 시드 밈 미디어의 권리는 각각의 권리자에게 있으며, 상세 고지와 원본 링크는 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)를 참고하세요.

@@ -1,0 +1,25 @@
+# Flutter and build output
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+build/
+dist/
+windows/flutter/ephemeral/
+windows/flutter/generated_plugins.cmake
+windows/flutter/generated_plugin_registrant.*
+
+# IDE and Windows build artifacts
+.idea/
+*.iml
+*.pdb
+
+# Local configuration, credentials, and user data
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.pfx
+*.p12
+userdata/
+user_data/

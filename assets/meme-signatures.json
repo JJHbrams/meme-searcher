@@ -1,0 +1,52 @@
+{
+  "version": 1,
+  "signatures": [
+    {
+      "id": "approved-knuckles-reference-v1",
+      "familyId": "approved",
+      "requiredTags": [],
+      "reference": {
+        "kind": "user-provided",
+        "localFilename": "01-approved-knuckles-reference.png"
+      },
+      "features": {
+        "version": 1,
+        "gray32": "b36Ci3h5bF5rcW5ocWVhX1s9Ojw6coaKqZlSVlVVVVV1hYaNeXhyand9bHJyZWBfXT47PTlrhoeTglNWVVZWVnB0dXR1eHhwcHZ2dHFkX15cPTc5PEBGRkpRVVVWVlZWa3qEhm56bl5sg4J6bWVcXFhEUl9kZGFVTVNVVlZWVlZ9kZyadnpucnB2gYFvZV1aY2pycnBwcW9nWlRWVlJUVYCUmph3eG9yaXmFgGpcVmFzcG1ramppaWtpWFVSXFhQg5acmHJ2bXR5i5uGhJN9aGxna2dmZmVmZmpjUG2nllh6goOAcnNvbWmey8TQ0syAZG5YYWRkY1xbX2VOib+tWGNjYmFjXnmlmLjKyMDBy66fy59gXFxdep50V2JhdmhHU1RVVVVTaMLczsC9s7HCu7zQu5ZgZo2/0ZBRalhOT1RaWlpaWVlSk8jDv7W4p7exodOMoWiOiqbGeVFpd0xIR0xLS0tLTUaAv6+6uLWor766xamri6Gar8ByUWN+aWNgUVFSUlNUTYG9oqq4uJZ/oY6nuLmPqLW0rGJXXXKLc1tcXV9gYGBZfLmsp6WDcWVcQmiUoZueoZViRV5eVFJaf2BgYmJjYVSTvqyftruJcFpLTlJofXxsUT9RXl1bTlJgW1pbW1taXbW/sKC70qxwYVZgg05FRUJFWVldXVp+ck9WVVVVVk9wwrinnIWtoXZ7hFx9sIdydIl8WV9WcsLGbF1dXF1eV3vBsaeiZYiIh4iDZFCHu7u0ll1aV1metsm/Xl9gX2BeW6G8soVQgImAalpWWVNmfnVYUl9ba5+wmHhXWlhXWFhTWXVwUVGIjGhOVFZZW1VRUVZNg7Bsja+JVlJSU1NTU1RSUE9Ybox7VVFVVFdXVldXUV6wzI+VycWxV1VXV1dXV1hUZnNpY2BTU1RUVVVUVVFqzNDSyc7S0c9UVFZXWFhVUmhzXl9eXVZTVFRVVFVWTKPSzdHO1svPvZJ1VVlZVFNphGBZYGBdVlRVVlVVVlJjxcXMwsjDu7aaqX9FSkhmhY59ZldZXVpTUU9NTExQSIXSws+5wKqcnoKciHJ4dH59dnNoY2tsZWBkVWBhX1xUeamSsImcoIqYoKOvysi/zcC9vLm4ubaxq6muxL+zusCpqq6yu8TOxJ2nwK62ubzCxrvDvsLFvsPEvLyZurC7uae3oHe0i66fzNbU2s/BvMfMxcjJyMbIycjAwbG9uLSssr23pryvvL3a34+Oo7OXu7Wtrby4ucS6vr/G1MjOzc3a0MbHzs/M2+jkamZycmR1dW9kbnFrbnJxcnODdnh5e3x7gHiBhoOSl5mMj46Ok5GRlJeUlJiVlJWUkoyOjImFg4F9end0dnFvbA==",
+        "rgb16": "c1cqf2o6hlEocT0bcUgnekEfcDkeXjAaNhgMAAAAKyEQfm1IjXBKTCEMSSANSiENdU4mf1wxhkojdj8dc08pfVgucDofVy4ZOhgMQgcFaA8JZRYIQxwISCEOSSAMSSAMgnU9lYxVgU8ocEEeblAodmMvYzATWR8MtBgR1hcT0xYRzBQRoRYOTR8MSiMQSyIPhWo2j3JAf0kleD0ajl1AtJyFsZ6OsF5StxgRqRILqRAJowsDsw4IbhIEjnlrgWBSWSkTWioUUiMPlGxa0Lqxz8K+xr65w7CnvquhpmtiiwwHpGFXqXRqhw0DYzUlRiQXQhkLRBsNOg8Ea0o+ycC6uK6nqqKcsqig1LuvsJaLpFdLsqedqYh9iwwCjTAZThgKTSIQTyUVSh4OYz4uq6GZp5+YknVogkQ3f1JDtYZvtItxuJF3bzkqhwgDiikWgTEbVioWWS4bTiIOgl9Ptqqjqp+Yt5qMfBwMXgwEaDkqZCgZSRcKUxEIlwwHexwSXC4aUSQRUyYTSRoFnoN3vbqzj25hnHZmn11DkTMhjkpAmnhuiWldfyUbfAQAt4x/tp+VVCkVVSkVTiIOcT4vnm9mcSQbiFtKgDYldgwEfwoDkTMqeh8ZfxYQg0w9mIp+rV5SRBgGSyANTCEOQxcFYg4AhioadkY0YQ8GcAoEdxAIbwQAbgkFvpeNxbqywLKr1rmxZD8sRxoGSBsHYCoSkzQbcx4LaxkFag0EbgcBbQsDZQAAn2FX4t3X2MrE08jBuLCrjHVsWTQlbT4tqVQ8kDopaykYdS0ZZR4QZh4WaiEYYBUQn4F3urGrraGbnJCJfnpltrKgxL6zycK4wLy1uLevvrixvLOrtKujrKSasamisaihpJyWl4yEpZyRrKqXrL+Eq6d1qaWMq6eZtrKetbCWurWfu7imuLaotbmet7ietbWjvL6mrrCYsrSZvsWh4vWyiEQskVA4k1Q9l1c/llM3nFg8m1o/mlxCoGVPoGJHnGFEmmFFkl1Hkl5JmGVHmmhF",
+        "dhash": "fb9e1b363499b906"
+      }
+    },
+    {
+      "id": "coming-helldivers-reference-v1",
+      "familyId": "coming",
+      "requiredTags": [
+        "helldivers"
+      ],
+      "reference": {
+        "kind": "user-provided",
+        "localFilename": "03-helldivers-coming-reference.png"
+      },
+      "features": {
+        "version": 1,
+        "gray32": "oqKhoaKhoaGioaGioqGhoqKioqGioqKioaJ1iqKhoqKioqKioqKioqKioqKioqKggHODopeJkpWhonyJoqGioqKfjZGhl4uboI6QoZ2MlJtoU2+Ycn+Dd6Gid4eioaKiopppWJyEVnehalablmRgkWxlcYt7opllnqKKgqKhoqKinot1m5d9gaGNdJmdinaeaVlwnHCBe3yioYSIoqGioqKioqKioqKioqKioqKioqKPepGilYeIkaGid5aioaKioZeRlZehg32LoIWEnJiik5aZoKKioqKiootwoaGioqKihWCFeKGMi26TlXV/boZwgHSRoqGhoKKBYpyhoaKioqKbb5x6mnd3aJWJgpR0fZSidHyioaGedWiboqGioqKioYB0fXucYm9lm3mVloyHd4pwlKKhonJ2oqKhoqKioqKhmqKQj511fHKdlXd0k6CJg4WcoaGRYqKgoaKioqKioqKPiaCPoo2LkZ2Qj56Pm4qhlJyhom2LoqGioqKioqKioI14fH6Kc4lzjI1tbXSddHV2jaKdbKGhoqKioqKioqKhooOChIKQonh6f4aAdpJ3mHd9oY9xoaGioqKioqKioqGEg5p5jXF/cJN0gXp5iXSDbpeidYahoaKhoKCgoKCgoZSinpGikI2LnZuJlpSij4uLnHhxoqKioqKioqKioqKioqChoqCioqKioqKioqGioqKKSnNvg5+ilnBzcW9wbnqeoqKioqKai4mLfZmiopx0Z44lLCkhUaJqGSknLi0mf3d3eXl5anWBgYJ8bHZ1bDEpiDJMRSsphHpdNU1QQ0ein5aXl5aboqKioqKelZWhTx9PRygxLzFBPjAvLzIsM6GioqKioqKhoaGhoaKioqJPPzQsMzotLEs3QzxYTzhQoqKhoaGhoqKioqKioqGhoY81MTAwJyUaNDIjJCInJzCioqKioqKioqKioqKioqGikTUpLCIxMSosLTIyMiAzV6KioqKioqKioqKioqKhop1gVC8qKDRHanlKMjo3JFs3oqKioqKioqKioqKioqGhTkhLLiA0LWKAkpItOjAuXjaioqKioqKioqKioqKioaBkKSUmJjg1OmyDRjI6LC5SaKKioqKioqKioqKioqGhoZ46OVE0Nzc0RUkuOTkwJCouoqKioqKioqKioqGioqGiiVJiUTU4ODIwMjY4Ni8wUE+ioqKioqKioqKioqKdnpdSLCk8PDA3Nzo5ODkwMTNLP6KioqKioqKioaKCTzc6Oy4yLzxeZis0MDM1NzAsW14voqKioqKioqKgonAtPzQ1Ojo2KHKiR0hVRDo1KTF4RC6ioqKioqKioqGijyU9NS0vLzCHoqF/OV5hYExEhlkvOg==",
+        "rgb16": "////////////////////////////////19fX7+/v7e3t8PDw+/v7y8vL/////v7+9vb2v7+/3d3dx8fH1dXV0tLS1tbWxsbGi4uLsrKy19fXxMTE9PT00dHR/v7+/////f394+Pj8PDw39/f7u7u5OTk8/Pz5OTktbW119fX2dnZ0dHR/f390tLS/////v7+6+vrz8/P7u7u2dnZ3d3d3t7e09PT4ODg2dnZ9fX1////////ycnJ4uLi/////v7+5ubmt7e31dXVpaWluLi419fXxcXFysrKycnJ4eHh/v7+w8PD3Nzc/////v7+////7+/v4eHh5+fnvr6+3d3d19fX2tra5OTk0dHR/v7+3t7e09PT/////f39////////8fHxwsLCw8PD29vbxcXFvr6+tbW1zc3Ntra27+/vzs7O9PT0/f39/Pz8/f39/f399fX15+fn39/f2NjY2tra29vb1tbW29vb1tbW2tra2dnb////////////////////6enp+/v7/Pz88/Pz6+vr5eXl9vb29fT12traj5GRWF1XnJ+k6enmZmtmbXRmb3Bm29vb1dXV09PT1NTU4uLi3d3d0tLSy8vMQ0U/XGBbKTEUIC0+goN3PkAPQkQTOj0U////////////////////////////////dXtqHicdKjI2Ex0nJCcrNTUYOz4YNkEl/v7+/v7+/v7+/v7+/v7+/f39/fz89Pb2q3qEXgMNISMzUVpiYGNqHjNJKiIzdThG////////////////////+/r6/Pz8xb/BcxskUQ8cGDJFl5KYubW1HjxNXR4wtTxL////////////////////////////8fDuW1hVQ0pPHjRMMz5KMz5KJj1VLiIwbTY9/////////////v7+////xcbHlpmcbniCJi82UVJTRlFdJTRFKTtPGy5CPElWWWFf/////////////Pz8////cnFyGR4hGy1BHS49rq+wxsXFVldYZmhuP0NKfH+GOkdW",
+        "dhash": "92d2c4e9599b5b76"
+      }
+    },
+    {
+      "id": "mold-breaker-arona-reference-v1",
+      "familyId": "mold-breaker",
+      "requiredTags": [],
+      "reference": {
+        "kind": "user-provided",
+        "localFilename": "04-mold-breaker-reference.png"
+      },
+      "features": {
+        "version": 1,
+        "gray32": "ZKh/ZIiIZ7q9vbqxratco4Rrt720pr12lrhfZXFtuLugbI+Wanu6vZp4dn17Uopse3aKgmlKbntyaX6EvXWovGqeYEJLrL2xYIaqiaNIkWaNZFaJl3dwlWyetHa7dLC9fIiSmmlevbyIWItKgFGRV5h7aHl7jXKMhr2lfLxtvW23fZozX3FotI9ooE2WPq2Tm3lxo4SAe4iLuqCEpoqEeJtpjI9/W3FwkVVyO4BOmWJ3f52AiX6Hg5O9nI6WaHt/Z4hKcoitb3mzXp+XfXqRdoCGoI1bqoKJW2yjRldskG27Z4OZvKaLbb1jm729fm1cYGCNvbumZXKkf2R6Zatkt7yke2hPmKhfd6dQvburiqczeWe2ozdbdaq2k2uEq529vL28cF+nmXmBvYBJu729pGe6UDghYmlBPqmsmGi8vaC6vWGeqH9akb28blo5fn9fOlpmfIqIhX9wp6S1XJC9gr2Hdr29lm+9vIxlfoZeGl2opLGyrq6xs7Gnp6uZVE23rF+6vZ1cuqi9Wo06VURpoaunpqalqp+VqKeop7J+Vb1cob2uVraRkbFhrVxcUYqxpainp6yndpuqqaOqfxupmX+9u16ivG2Bnj9fi5GwqoyukpitlnWaraWjooWsg01yvb1wiL2lgapyQhkqg2F+iIdum6uboqqmo2yRcpSzp1O9lW+9uruEPXqjO3BuTBaijGyYrYelrbGfhnJ5eZmtpLFgupW4kVOTt40lV6RDZHp3nXupc1yOclCOgZOLdaCqapm9hLJPqbmvrIOrfx9eGglfnHiFVSk4MFeDjWpwfJx+vbq9dHe7q6+wt7OoPDAmISKprbKpO21ze4pwd5uWi728vLJUr6+vr6+suXtfTz9WLaK6tbqOa52vaG2Sqn1dvLy9eHS6rK6vr627OH6VcYpps7u2mpWPdFZPaVplPyi9sYZgqLW0sq+ttZkgVYCtr7q5m2tkYkQyQ09SVVdkb72SYU6Ui5CfsLC9UkyFW04wIR47UlwyWV9dcmudkXeUvaixb1d5g3+AmLA3JVZ8VXxvP0l/a065g3VgX3h2Z3+9vb29oXZxfYWFWlOMUkVcvb2sTUt9Nqmscn17fouNpry4XExwfWA2JEFYc1qRtli2ur1mSZJVW7c7Z0x4ene0vag2WkA6V1lmNKimcL29mkmNiDNrcFk5Q0xcZGRgX1a7si0mPjU6Lig7tb16Y4F/ODtIcUxIYoZ5bGZhY2VnZ728SjYmGxcoNU+1vbAjLUZuXT5oWVNUSElKSEpMTU9QWkozYFhaTVRSQEVcWkU9TERGRk5UWV1iZGVnaGdlYWBrZxstPzhKTCsUZGlocHNydnh5eHd3dXV0dHNzc3R1dQ==",
+        "rgb16": "vr6+srKys7Oz5ubm3t7e0tLSwMDAr6+vr6+v2NjYvr6+urq6uLi4srKyw8PD8vLyw8PDpaWloaGh////r6+vs7OznZ2draysrKyso6Ojs7Ozp6en09PT3t7e2tra3d3dxcXFsLCwlZWVvb29uLi4kpKSlZWVwMHBvb6+vb29uLi4tra26ujo2trat7e3rKyssrKyq6ur4ODgubm5vLy82dnZ0tHRnZ2dnZ6e4ODg1NTUr7GxusXIoqKioaCgxMTE+vr6tLS0t7e3vr6+zMzMwMDA9/j42tnYl5WVpaWllJWVf4KEuc/UusrNzs7O+fn45+fn1tbW1NTUx8fH9vX2iZOXlJSUjZOUqru/rcTKvNTavdTavdTb1vT7rbm9zs3NwMDA9PT0w8PD5+bmyM7QlqmueoaJrcbN3fr/2PT80Orxwdrh1vL52fX8lKmsuLe38fHxy8vL6Ojow8PDkZKTb32CqL/FvNLXrszZxeLrw9vg0uzwx+Hpq8LSxc7bpbK009PT2tra6urqqampvby8d31/iIuMfI+Suri4vNLcor/NsMjZlqvDnLrLuL7U2t3t0NDQ+Pj4r6+v5+bm7e7u5eXloKGfOkFjVkpm4dHKu7y/U2ufjJu3sr/Gmr7Ov8/g////5OTkx8jI+Pn57ezs8PLzpZWPjpm1fqDI//Xs/+3l1rGyu66qdJqmk7fEfoiR7u/vnJmZ0cjI5+Li+vr5xcfHf25swLWum52Zk5qcg5Weg35/bHZ5fpGVlaCklJ2g+vr61trasq2sr6alxby8kY+PgXx8j4SEzcXBiI+PQZ2vobm+w8zPmpmZtLi5wczP8/X1r3h7sXp9q2hrj1hbrbCw0svI4dPM3tPNuLu6Qae8cKGsjZibhI6QlqKjpbW45+npa2BgWEpLYElKdWdo8/b2oqeob42SQICOPZCiRZanTpusWJWjX5KeXJGeVpCemYeIdFpchmdpjWdobFdYmoiJmIWHenh/loyRnoaJqo2OrouMsIyPsY2PsY6Qro2Q",
+        "dhash": "2015b463f4b68890"
+      }
+    }
+  ]
+}
