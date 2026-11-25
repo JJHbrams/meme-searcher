@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:crypto/crypto.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:meme_searcher/core/catalog.dart';
 import 'package:meme_searcher/core/device_app_services.dart';
 import 'package:meme_searcher/core/local_library_store.dart';
 import 'package:meme_searcher/core/models.dart';
@@ -35,6 +36,12 @@ void main() {
   });
 
   test('initializes bundled library and keeps local query behavior', () async {
+    for (final seed in MemeCatalog.seedAssets) {
+      expect(
+        sha256.convert(await File(seed.file).readAsBytes()).toString(),
+        seed.sha256,
+      );
+    }
     expect(await services.library(), hasLength(5));
     expect(await services.library(filter: MediaFilter.gif), hasLength(2));
 

@@ -12,9 +12,11 @@ class RankingService {
     final merged = <String, MemeAsset>{};
     for (final group in groups) {
       for (final candidate in group) {
-        final key = canonicalOriginalUrl(candidate.originalUrl ?? '').isNotEmpty
-            ? canonicalOriginalUrl(candidate.originalUrl ?? '')
-            : 'local:${candidate.id}';
+        final url = candidate.isPreviewOnly
+            ? candidate.previewUrl
+            : candidate.originalUrl;
+        final address = canonicalOriginalUrl(url ?? '');
+        final key = address.isEmpty ? 'local:${candidate.id}' : address;
         final existing = merged[key];
         if (existing == null) {
           merged[key] = candidate;

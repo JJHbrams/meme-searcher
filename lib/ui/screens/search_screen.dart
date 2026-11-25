@@ -36,6 +36,7 @@ class _SearchScreenState extends State<SearchScreen> {
   final _scroll = ScrollController();
   final List<String> _tags = [];
   List<MemeAsset> _assets = [];
+  List<MemeAsset> _cachedAssets = [];
   List<MemeAsset> _recentAssets = [];
   List<MemeAsset> _favoriteAssets = [];
   List<String> _recentQueries = [];
@@ -44,6 +45,7 @@ class _SearchScreenState extends State<SearchScreen> {
   bool _similar = false;
   bool _loading = true;
   bool _hasSearched = false;
+  bool _cacheExpanded = false;
   bool _showSearchOptions = false;
   bool _openingSettings = false;
   String? _error;
@@ -212,6 +214,8 @@ class _SearchScreenState extends State<SearchScreen> {
     _navMode = value;
     _hasSearched = false;
     _assets = [];
+    _cachedAssets = [];
+    _cacheExpanded = false;
     if (value == _NavMode.conch) {
       ++_searchSerial;
       setState(() {
@@ -249,8 +253,15 @@ class _SearchScreenState extends State<SearchScreen> {
           favoritesOnly: mode == _NavMode.favorites,
           recentOnly: mode == _NavMode.recent,
         );
+        final cached = mode == _NavMode.all
+            ? await widget.services.cachedLibrary(filter: _filter)
+            : const <MemeAsset>[];
         if (!mounted || serial != _searchSerial) return;
-        setState(() => _assets = items);
+        setState(() {
+          _assets = items;
+          // The service owns cache recency (LRU) ordering.
+          _cachedAssets = cached;
+        });
       }
     } catch (_) {
       if (mounted && serial == _searchSerial) {
@@ -270,7 +281,11 @@ class _SearchScreenState extends State<SearchScreen> {
 
   String _source(MemeAsset asset) {
     final labels = <String>[];
-    if (!asset.isWeb) labels.add('내 짤');
+    if (asset.origin == 'cache') {
+      labels.add('임시 저장');
+    } else if (!asset.isWeb) {
+      labels.add('내 짤');
+    }
     for (final engine in asset.engines) {
       final label = engine.contains('Google')
           ? 'Google'
@@ -330,6 +345,11 @@ class _SearchScreenState extends State<SearchScreen> {
                     _assets = [..._assets]
                       ..[index] = _assets[index].copyWith(favorite: favorite),
               );
+            }
+          },
+          onLibraryChanged: () async {
+            if (mounted && _navMode == _NavMode.all && !_hasSearched) {
+              await _loadPage();
             }
           },
         ),
@@ -408,7 +428,12 @@ class _SearchScreenState extends State<SearchScreen> {
                       if (!home || !wide) ...[
                         _Header(
                           title: _hasSearched ? '검색 결과' : _navMode.label,
-                          assetCount: home || _loading ? null : _assets.length,
+                          assetCount: home || _loading
+                              ? null
+                              : _assets.length +
+                                    (_navMode == _NavMode.all && !_hasSearched
+                                        ? _cachedAssets.length
+                                        : 0),
                           onSettings: _openSettings,
                           compact: !wide,
                           quotaLabel: _serpApiQuotaLabel(),
@@ -816,6 +841,9 @@ class _SearchScreenState extends State<SearchScreen> {
   );
 
   Widget _resultsGrid(bool wide) {
+    if (_navMode == _NavMode.all && !_hasSearched) {
+      return _allBrowseSlivers(wide);
+    }
     if (_loading && _assets.isEmpty) {
       return const SliverFillRemaining(
         hasScrollBody: false,
@@ -830,42 +858,142 @@ class _SearchScreenState extends State<SearchScreen> {
         ),
       );
     }
+    return _collectionSliver(_assets, wide, bottom: 90);
+  }
+
+  Widget _allBrowseSlivers(bool wide) {
+    final inset = wide ? 46.0 : 20.0;
+    return SliverLayoutBuilder(
+      builder: (context, constraints) {
+        final columns = _gridColumns(constraints.crossAxisExtent - inset * 2);
+        final limit = columns * 2;
+        return SliverMainAxisGroup(
+          slivers: [
+            if (_cachedAssets.isNotEmpty) ...[
+              SliverPadding(
+                padding: EdgeInsets.fromLTRB(inset, 0, inset, 12),
+                sliver: const SliverToBoxAdapter(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '임시 저장',
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      SizedBox(height: 4),
+                      Text(
+                        '256 MiB까지 보관해요. 복사한 짤은 아래 내 짤에 남아요.',
+                        style: TextStyle(color: MemeTheme.muted),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              _collectionSliver(
+                _cacheExpanded
+                    ? _cachedAssets
+                    : _cachedAssets.take(limit).toList(),
+                wide,
+                columns: columns,
+              ),
+              if (_cachedAssets.length > limit)
+                SliverToBoxAdapter(
+                  child: Center(
+                    child: TextButton.icon(
+                      onPressed: () =>
+                          setState(() => _cacheExpanded = !_cacheExpanded),
+                      icon: Icon(
+                        _cacheExpanded ? Icons.expand_less : Icons.expand_more,
+                      ),
+                      label: Text(
+                        _cacheExpanded
+                            ? '접기'
+                            : '펼치기 (${_cachedAssets.length - limit})',
+                      ),
+                    ),
+                  ),
+                ),
+              const SliverToBoxAdapter(child: SizedBox(height: 26)),
+            ],
+            SliverPadding(
+              padding: EdgeInsets.fromLTRB(inset, 0, inset, 12),
+              sliver: const SliverToBoxAdapter(
+                child: Text(
+                  '내 짤',
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900),
+                ),
+              ),
+            ),
+            if (_assets.isEmpty)
+              const SliverFillRemaining(
+                hasScrollBody: false,
+                child: Center(
+                  child: Text(
+                    '저장한 짤이 없어요.',
+                    style: TextStyle(color: MemeTheme.muted),
+                  ),
+                ),
+              )
+            else
+              _collectionSliver(_assets, wide, columns: columns),
+          ],
+        );
+      },
+    );
+  }
+
+  int _gridColumns(double extent) => ((extent + 12) / 162).floor().clamp(1, 5);
+
+  Widget _collectionSliver(
+    List<MemeAsset> assets,
+    bool wide, {
+    int? columns,
+    double bottom = 12,
+  }) {
     final inset = wide ? 46.0 : 20.0;
     return SliverPadding(
-      padding: EdgeInsets.fromLTRB(inset, 0, inset, 90),
-      sliver: SliverLayoutBuilder(
-        builder: (context, constraints) => SliverGrid.builder(
-          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: ((constraints.crossAxisExtent + 12) / 162)
-                .floor()
-                .clamp(1, 5),
-            mainAxisSpacing: 12,
-            crossAxisSpacing: 12,
-            childAspectRatio: .74,
-          ),
-          itemCount: _assets.length,
-          itemBuilder: (context, index) {
-            final asset = _assets[index];
-            Widget card(MemeAsset item, {bool probing = false}) => _MemeCard(
-              asset: item,
-              source: _source(item),
-              mediaInfo: _mediaInfo(item),
-              probing: probing,
-              onTap: () => _openAsset(item),
-            );
-            if (!asset.isWeb || asset.displayFormat != null) return card(asset);
-            return FutureBuilder<String?>(
-              key: ValueKey(asset.originalUrl ?? asset.id),
-              future: widget.services.probeWebFormat(asset),
-              builder: (_, snapshot) => card(
-                snapshot.hasData
-                    ? asset.copyWith(formatHint: snapshot.data)
-                    : asset,
-                probing: snapshot.connectionState == ConnectionState.waiting,
+      padding: EdgeInsets.fromLTRB(inset, 0, inset, bottom),
+      sliver: columns == null
+          ? SliverLayoutBuilder(
+              builder: (context, constraints) => _collectionGrid(
+                assets,
+                _gridColumns(constraints.crossAxisExtent),
               ),
-            );
-          },
+            )
+          : _collectionGrid(assets, columns),
+    );
+  }
+
+  Widget _collectionGrid(List<MemeAsset> assets, int columns) =>
+      SliverGrid.builder(
+        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: columns,
+          mainAxisSpacing: 12,
+          crossAxisSpacing: 12,
+          childAspectRatio: .74,
         ),
+        itemCount: assets.length,
+        itemBuilder: (context, index) => _resultCard(assets[index]),
+      );
+
+  Widget _resultCard(MemeAsset asset) {
+    Widget card(MemeAsset item, {bool probing = false}) => _MemeCard(
+      asset: item,
+      source: _source(item),
+      mediaInfo: _mediaInfo(item),
+      probing: probing,
+      onTap: () => _openAsset(item),
+    );
+    if (!asset.isWeb || asset.displayFormat != null) return card(asset);
+    return FutureBuilder<String?>(
+      key: ValueKey(asset.originalUrl ?? asset.id),
+      future: widget.services.probeWebFormat(asset),
+      builder: (_, snapshot) => card(
+        snapshot.hasData ? asset.copyWith(formatHint: snapshot.data) : asset,
+        probing: snapshot.connectionState == ConnectionState.waiting,
       ),
     );
   }
@@ -1358,6 +1486,7 @@ class _PreviewDialog extends StatefulWidget {
     required this.source,
     required this.onInspected,
     required this.onFavoriteChanged,
+    required this.onLibraryChanged,
   });
 
   final MemeAsset asset;
@@ -1366,6 +1495,7 @@ class _PreviewDialog extends StatefulWidget {
   final String source;
   final ValueChanged<MemeAsset> onInspected;
   final ValueChanged<bool> onFavoriteChanged;
+  final Future<void> Function() onLibraryChanged;
 
   @override
   State<_PreviewDialog> createState() => _PreviewDialogState();
@@ -1417,7 +1547,8 @@ class _PreviewDialogState extends State<_PreviewDialog> {
     _load();
   }
 
-  Future<void> _load() async {
+  Future<void> _load({bool retryOriginal = false}) async {
+    final previous = _previewOnly ? _media : null;
     setState(() {
       _busy = true;
       _error = null;
@@ -1425,12 +1556,28 @@ class _PreviewDialogState extends State<_PreviewDialog> {
       _media = null;
     });
     try {
-      final media = await widget.services.loadMedia(widget.asset);
+      final originalAsset = retryOriginal
+          ? widget.asset.copyWith(origin: 'web', isPreviewOnly: false)
+          : widget.asset;
+      final media = await widget.services.loadMedia(
+        originalAsset,
+        preferCached: !retryOriginal,
+      );
       if (!mounted) return;
-      setState(() => _media = media);
-      widget.onInspected(media.asset);
+      setState(() {
+        _media = media;
+        _previewOnly = media.asset.isPreviewOnly;
+      });
+      if (!retryOriginal || widget.asset.isWeb) widget.onInspected(media.asset);
     } catch (_) {
       if (!mounted) return;
+      if (retryOriginal && previous != null) {
+        setState(() {
+          _media = previous;
+          _previewOnly = true;
+        });
+        return;
+      }
       try {
         final preview = await widget.services.loadPreviewMedia(widget.asset);
         if (mounted) {
@@ -1470,11 +1617,24 @@ class _PreviewDialogState extends State<_PreviewDialog> {
 
   Future<void> _saveToLibrary() async {
     final media = _media;
-    if (media == null || !widget.asset.isWeb) {
+    final onLibraryChanged = widget.onLibraryChanged;
+    if (media == null ||
+        (!widget.asset.isWeb && widget.asset.origin != 'cache')) {
       return;
     }
     try {
-      await widget.services.saveToLibrary(media, title: widget.asset.title);
+      final saved = await widget.services.saveToLibrary(
+        media,
+        title: widget.asset.title,
+      );
+      if (mounted && saved.filePath != null) {
+        _media = MediaFile(
+          bytes: media.bytes,
+          path: saved.filePath!,
+          asset: saved,
+        );
+      }
+      unawaited(onLibraryChanged());
       _notify('내 짤에 저장했어요.');
     } catch (_) {
       _notify('저장하지 못했어요.', error: true);
@@ -1491,11 +1651,44 @@ class _PreviewDialogState extends State<_PreviewDialog> {
   );
 
   void _copy() {
-    if (_media != null) {
-      _run(
+    final media = _media;
+    if (media == null) return;
+    unawaited(
+      _copyAndKeep(
+        media,
         widget.actions.copy,
         _previewOnly ? '미리보기 이미지를 복사했어요.' : '클립보드에 복사했어요.',
-      );
+      ),
+    );
+  }
+
+  Future<void> _copyAndKeep(
+    MediaFile media,
+    Future<MediaActionResult> Function(MediaFile) action,
+    String success,
+  ) async {
+    final onLibraryChanged = widget.onLibraryChanged;
+    MediaFile? clipboardFile;
+    try {
+      final copied = await widget.services.copyAndKeep(media, (prepared) async {
+        final result = await action(prepared);
+        if (result.completed) clipboardFile = prepared;
+        return result.completed;
+      });
+      if (!copied) return;
+      if (mounted && clipboardFile != null) _media = clipboardFile;
+      unawaited(onLibraryChanged());
+      if (!mounted) return;
+      _notify(success);
+    } on CopyLibrarySaveException {
+      if (mounted) {
+        if (clipboardFile != null) _media = clipboardFile;
+        _notify('복사는 됐지만 내 짤 보관에는 실패했어요.', error: true);
+      }
+    } on MediaActionException catch (error) {
+      _notify(error.message, error: true);
+    } catch (_) {
+      _notify('작업을 완료하지 못했어요.', error: true);
     }
   }
 
@@ -1602,7 +1795,9 @@ class _PreviewDialogState extends State<_PreviewDialog> {
                         ),
                       if (_previewOnly || _error != null)
                         TextButton(
-                          onPressed: _busy ? null : _load,
+                          onPressed: _busy
+                              ? null
+                              : () => _load(retryOriginal: true),
                           child: const Text('원본 다시 시도'),
                         ),
                       if (widget.asset.matchReason != null) ...[
@@ -1631,7 +1826,8 @@ class _PreviewDialogState extends State<_PreviewDialog> {
                             OutlinedButton.icon(
                               onPressed: _media == null
                                   ? null
-                                  : () => _run(
+                                  : () => _copyAndKeep(
+                                      _media!,
                                       widget.actions.copyFile,
                                       '원본 파일을 복사했어요.',
                                     ),
@@ -1656,7 +1852,8 @@ class _PreviewDialogState extends State<_PreviewDialog> {
                               icon: const Icon(Icons.ios_share_outlined),
                               label: const Text('공유'),
                             ),
-                          if (widget.asset.isWeb)
+                          if (widget.asset.isWeb ||
+                              widget.asset.origin == 'cache')
                             OutlinedButton.icon(
                               onPressed: _media == null || _previewOnly
                                   ? null

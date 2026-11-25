@@ -102,6 +102,7 @@ class MemeAsset {
     this.animated = false,
     this.motionVerified = false,
     this.verified = false,
+    this.isPreviewOnly = false,
     this.originalProviderRank = 0,
     this.rankingScore = 0,
     this.inspectionStatus = 'unverified',
@@ -139,6 +140,7 @@ class MemeAsset {
   final bool animated;
   final bool motionVerified;
   final bool verified;
+  final bool isPreviewOnly;
   final int originalProviderRank;
   final num rankingScore;
   final String inspectionStatus;
@@ -184,6 +186,7 @@ class MemeAsset {
     bool? animated,
     bool? motionVerified,
     bool? verified,
+    bool? isPreviewOnly,
     int? originalProviderRank,
     num? rankingScore,
     String? inspectionStatus,
@@ -220,6 +223,7 @@ class MemeAsset {
     animated: animated ?? this.animated,
     motionVerified: motionVerified ?? this.motionVerified,
     verified: verified ?? this.verified,
+    isPreviewOnly: isPreviewOnly ?? this.isPreviewOnly,
     originalProviderRank: originalProviderRank ?? this.originalProviderRank,
     rankingScore: rankingScore ?? this.rankingScore,
     inspectionStatus: inspectionStatus ?? this.inspectionStatus,
@@ -258,6 +262,7 @@ class MemeAsset {
     'animated': animated,
     'motionVerified': motionVerified,
     'verified': verified,
+    'isPreviewOnly': isPreviewOnly,
     'originalProviderRank': originalProviderRank,
     'rankingScore': rankingScore,
     'inspectionStatus': inspectionStatus,
@@ -314,6 +319,7 @@ class MemeAsset {
       animated: json['animated'] as bool? ?? false,
       motionVerified: json['motionVerified'] as bool? ?? false,
       verified: json['verified'] as bool? ?? false,
+      isPreviewOnly: json['isPreviewOnly'] as bool? ?? false,
       originalProviderRank:
           (json['originalProviderRank'] as num?)?.toInt() ?? 0,
       rankingScore: json['rankingScore'] as num? ?? 0,
@@ -398,6 +404,11 @@ class MediaFile {
   final Uint8List bytes;
   final String path;
   final MemeAsset asset;
+}
+
+/// The clipboard owns the prepared file, but the library index write failed.
+class CopyLibrarySaveException implements Exception {
+  const CopyLibrarySaveException();
 }
 
 class SettingsState {

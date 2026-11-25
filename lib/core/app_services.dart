@@ -12,6 +12,13 @@ abstract interface class AppServices {
     bool recentOnly = false,
   });
 
+  Future<List<MemeAsset>> cachedLibrary({MediaFilter filter = MediaFilter.all});
+
+  Future<bool> copyAndKeep(
+    MediaFile file,
+    Future<bool> Function(MediaFile) copy,
+  );
+
   Future<MediaFile> loadMedia(MemeAsset asset, {bool preferCached = true});
 
   Future<MediaFile> loadPreviewMedia(MemeAsset asset);

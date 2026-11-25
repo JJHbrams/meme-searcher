@@ -72,6 +72,10 @@ class MemeCatalog {
     },
   );
 
+  static final bundledDigests = {
+    for (final seed in seedAssets) seed.id: seed.sha256,
+  };
+
   static const seedAssets = [
     SeedAsset(
       id: 'knuckles-approved',
@@ -81,6 +85,8 @@ class MemeCatalog {
       variant: '너클즈 도장',
       tagIds: ['knuckles', 'sonic'],
       file: 'assets/seed-assets/approved-knuckles-tenor.gif',
+      sha256:
+          'f3e638c9c44d6f93456b0ab039a4f4e9cc368f0817e66f13ceb58a8a8522c55f',
       sourceUrl: 'https://tenor.com/view/knuckles-knuckles-the-echidna-approved-knuckles-approved-knuckles-approve-gif-7865806417645174166',
     ),
     SeedAsset(
@@ -91,6 +97,8 @@ class MemeCatalog {
       variant: '긴 버전',
       tagIds: ['knuckles', 'sonic'],
       file: 'assets/seed-assets/approved-knuckles-kym.gif',
+      sha256:
+          'f10d072df055ea17132584066429e48a4f34da696672db386893ae5853edc50d',
       sourceUrl:
           'https://knowyourmeme.com/photos/2907981-meme-approved-by-knuckles',
     ),
@@ -102,6 +110,8 @@ class MemeCatalog {
       variant: '케장콘',
       tagIds: ['kejang'],
       file: 'assets/seed-assets/kejang-coming-ruliweb.png',
+      sha256:
+          '50b789ef875f06595d733ca2489de9575b2299dabe296ded01b23d1d995e0a2e',
       sourceUrl: 'https://m.ruliweb.com/community/board/300779/read/44957908',
     ),
     SeedAsset(
@@ -112,6 +122,8 @@ class MemeCatalog {
       variant: '헬다이버즈 2',
       tagIds: ['helldivers'],
       file: 'assets/seed-assets/helldivers-coming-arca.png',
+      sha256:
+          '3adf0ba743a490b4bf7106d3eebdbe4180a835f03540b1cbfe6e8d3d06154459',
       sourceUrl: 'https://arca.live/b/helldivers2/187859047?p=1',
     ),
     SeedAsset(
@@ -122,6 +134,8 @@ class MemeCatalog {
       variant: '아로나',
       tagIds: ['arona'],
       file: 'assets/seed-assets/arona-mold-breaker-x.webp',
+      sha256:
+          'e40badf3bdd81dd7cbc0d4baa2081d826fb1cd9e0373ee4b9ab673c5d0834872',
       sourceUrl: 'https://x.com/teska1567/status/1763800216296370399',
     ),
   ];
@@ -161,6 +175,7 @@ class SeedAsset {
     required this.variant,
     required this.tagIds,
     required this.file,
+    required this.sha256,
     required this.sourceUrl,
   });
 
@@ -171,5 +186,6 @@ class SeedAsset {
   final String variant;
   final List<String> tagIds;
   final String file;
+  final String sha256;
   final String sourceUrl;
 }
