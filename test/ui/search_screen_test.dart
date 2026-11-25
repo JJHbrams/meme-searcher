@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
@@ -57,6 +59,17 @@ void main() {
           previewOnly ? 'preview.png' : 'original.png',
         ]);
         expect(find.textContaining('PNG · 2×2'), findsWidgets);
+        if (Platform.isWindows) {
+          final fileCopy = find.text('파일로 복사');
+          if (previewOnly) {
+            expect(fileCopy, findsNothing);
+          } else {
+            await tester.ensureVisible(fileCopy);
+            await tester.tap(fileCopy);
+            await tester.pump();
+            expect(actions.copiedFiles.map((f) => f.path), ['original.png']);
+          }
+        }
         if (previewOnly) {
           final save = tester.widget<OutlinedButton>(
             find.widgetWithText(OutlinedButton, '원본 저장'),
@@ -163,6 +176,14 @@ void main() {
 
 class _RecordingActions extends MediaActions {
   final copied = <MediaFile>[];
+  final copiedFiles = <MediaFile>[];
+
+  @override
+  Future<MediaActionResult> copyFile(MediaFile file) async {
+    copiedFiles.add(file);
+    return const MediaActionResult.success();
+  }
+
   @override
   Future<MediaActionResult> copy(MediaFile file) async {
     copied.add(file);
