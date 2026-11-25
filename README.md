@@ -1,28 +1,46 @@
-# Meme Searcher for Windows
+![Meme Searcher 로고와 고양이·비둘기·카피바라 반응 짤이 튀어나오는 연두색 서랍](docs/media/meme-drawer.jpg)
 
-밈 키워드로 이미지와 GIF를 찾고, 결과를 Windows 클립보드에 복사하는 데스크톱 앱입니다.
+# 그 짤 어디 있었지?
 
-## 설치와 실행
+“좋다 지금 간다 기다려라.” 대사는 기억나는데 저장한 폴더가 생각 안 날 때, **Meme Searcher**에 그 대사를 넣어 보세요. 내 짤과 웹에서 찾은 짤이 한 화면에 뜹니다. 보낼 짤을 열고 `Ctrl+C`, 채팅창에서 `Ctrl+V`.
 
-Windows 10/11 x64에서 [최신 릴리스](https://github.com/JJHbrams/meme-searcher/releases/latest)의 `windows-x64.zip`으로 끝나는 파일을 내려받으세요. **압축을 폴더 전체로 푼 뒤** 그 안의 `meme_searcher.exe`를 실행하세요. DLL과 `data` 폴더도 실행 파일 옆에 있어야 합니다.
+**[Windows용 최신 버전 다운로드](https://github.com/JJHbrams/meme-searcher/releases/latest)** · Windows 10/11 x64 · 포터블 ZIP
 
-배포본은 코드 서명되지 않은 portable ZIP입니다. Windows SmartScreen 경고가 표시될 수 있습니다.
+![홈 화면에 최근 쓴 너클즈 승인 GIF와 케장콘, 최근 검색어, 즐겨찾기가 보입니다](docs/media/home.png)
 
-Windows에 `VCRUNTIME` 또는 `MSVCP` DLL이 없다는 오류가 나면 [Microsoft Visual C++ v14 x64 Redistributable](https://aka.ms/vc14/vc_redist.x64.exe)를 설치하세요. 지원되는 최신 런타임 안내는 [Microsoft 문서](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist/)에서 확인할 수 있습니다. 별도 설치 프로그램은 배포 ZIP에 포함하지 않습니다.
+*기본 제공 짤과 예시 사용 기록으로 구성한 홈 화면입니다.*
 
-## 사용 방법
+## 한 번 찾아 둔 짤, 또 써먹기
 
-1. 첫 실행의 **Google 이미지 검색 연결**에서 SerpApi에 가입하거나 로그인합니다. **API 키 페이지 열기**에서 본인 키를 복사한 뒤 앱으로 돌아와 **복사한 키로 연결**을 누르세요. 앱이 검색 횟수를 쓰지 않는 계정 API로 키를 확인한 뒤 Windows 보안 저장소에 저장합니다. 직접 입력도 가능합니다. **나중에**를 선택하면 바로 내 짤을 이용할 수 있고 설정에서 언제든 연결할 수 있습니다. 이미 저장된 키나 `SERPAPI_API_KEY` 환경 변수가 있으면 첫 실행 안내를 건너뜁니다.
-2. 홈에서 키워드와 필요하면 `#헬다2`처럼 태그를 입력하고 검색합니다. 기본 범위인 **모두**는 내 짤과 웹을 함께 검색합니다. 홈의 **최근 사용**, **최근 검색**, **즐겨찾기**에는 각각 최대 5개가 표시됩니다. 최근 검색어를 누르면 다시 검색하고, 짤을 누르면 미리보기가 열립니다. 미리보기의 별 버튼으로 즐겨찾기를 관리하세요.
-3. 결과의 미리보기에서 **복사** 또는 **Ctrl+C**를 누른 뒤, 메신저 입력란에서 **Ctrl+V**로 붙여넣습니다. 일반 이미지는 PNG와 Windows 비트맵으로 전달합니다. 파일 첨부가 필요하면 **파일로 복사**를 선택하세요. GIF는 기본 복사만으로 탐색기에서 복사한 원본 파일처럼 전달되어 애니메이션이 유지됩니다.
+- **원본이냐 패러디냐.** `좋다 지금 간다 기다려라`로 케장콘과 헬다이버즈 버전을 함께 찾고, `#헬다2`를 붙여 원하는 버전으로 좁혀 보세요. 검색 범위는 **모두**가 기본이고, 형식은 **전체 / GIF / 이미지**로 고를 수 있습니다.
+- **다음에도 쓸 짤은 별표.** 미리보기에서 별을 누르면 홈의 즐겨찾기에 들어갑니다. 홈에는 최근 사용한 짤, 최근 검색어, 즐겨찾기가 각각 최대 5개씩 보입니다. 검색어를 누르면 그 검색을 다시 실행합니다.
+- **GIF는 움직이는 채로.** 이미지는 미리보기의 **복사**로 채팅창에 붙여넣으세요. GIF는 원본 파일로 복사합니다. 카카오톡에서 GIF 붙여넣기가 안 될 때는 **원본 저장**을 눌러 저장한 파일을 채팅창에 첨부하세요.
 
-검색 API 사용량·요금·원본 사이트의 접근 가능 여부는 각 서비스와 결과 사이트의 정책·상태에 따릅니다. 원본 URL이 차단되거나 내려가면 해당 결과는 열거나 복사하지 못할 수 있습니다.
+## 처음 실행하기
 
-웹 결과는 검색 엔진이 제공한 이미지 형식을 표시합니다. 형식 정보가 없는 결과는 화면에 나타날 때 원본의 첫 바이트를 확인합니다. 짤을 열면 실제 파일에서 확인한 형식과 크기가 표시됩니다. **복사**와 **Ctrl+C**는 같은 동작입니다. 원본을 열 수 있고 지원하는 형식이면 원본을 사용합니다. 원본을 열 수 없어 별도의 썸네일을 표시하는 경우에는 **미리보기 이미지 복사**로 그 해상도의 이미지를 복사할 수 있습니다.
+1. 릴리스의 **Assets**에서 `windows-x64.zip`으로 끝나는 파일을 받아 폴더 전체를 압축 해제하세요. DLL과 `data` 폴더가 함께 있는 상태에서 `meme_searcher.exe`를 실행합니다.
+2. 첫 화면에서 **나중에**를 누르면 키 없이 기본 제공 짤부터 검색할 수 있습니다. Google 이미지 결과도 쓰려면 **Google 이미지 검색 연결**에서 SerpApi에 로그인한 뒤 **API 키 페이지 열기 → 키 복사 → 복사한 키로 연결**을 선택하세요. 나중에 **설정**에서도 연결할 수 있습니다.
 
-## 개발 빌드
+<details>
+<summary>검색 키와 원본 이미지</summary>
 
-필요한 도구는 Flutter 3.50, Dart 3.14, Visual Studio C++ Build Tools입니다.
+앱은 SerpApi 계정 API로 키를 확인하고 Windows 보안 저장소에 저장합니다. 키를 직접 입력하거나 `SERPAPI_API_KEY` 환경 변수를 쓸 수도 있습니다. 웹 검색 사용량과 요금은 연결한 서비스의 계정 정책을 따릅니다.
+
+웹 원본을 열 수 없고 썸네일만 남아 있으면 **미리보기 이미지 복사**로 표시된 해상도의 이미지를 복사할 수 있습니다. 원본을 열 수 있다면 **파일로 복사**로 파일 자체를 첨부할 수도 있습니다.
+
+</details>
+
+<details>
+<summary>Windows 실행 문제</summary>
+
+배포 ZIP은 코드 서명되지 않아 Windows SmartScreen 경고가 표시될 수 있습니다. 실행 시 `VCRUNTIME` 또는 `MSVCP` DLL이 없다는 오류가 뜨면 Microsoft의 x64 런타임을 설치하세요. [VC++ v14 x64 다운로드](https://aka.ms/vc14/vc_redist.x64.exe) · [Microsoft 런타임 안내](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist/)
+
+</details>
+
+<details>
+<summary>소스에서 빌드하거나 릴리스하기</summary>
+
+Flutter 3.50, Dart 3.14, Visual Studio C++ Build Tools가 필요합니다.
 
 ```powershell
 flutter pub get
@@ -30,15 +48,15 @@ powershell -NoProfile -File .\tools\prepare-flutter-windows.ps1
 flutter build windows --release
 ```
 
-일반 사용자 권한에서 첫 `flutter pub get`이 플러그인 symlink 생성 때문에 실패할 수 있지만, 필요한 manifest는 먼저 작성됩니다. 그 경우 보조 스크립트를 실행해 디렉터리 junction을 준비한 뒤 `flutter pub get`을 한 번 더 실행하고 빌드하세요. Developer Mode나 시스템 전체 보안 설정을 변경하지 않습니다. `flutter_secure_storage_windows`는 Visual Studio ATL 선택 구성 요소 없이 빌드되도록 로컬에 vendoring한 패치를 사용하며, 동작과 라이선스 정보는 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)에 기록했습니다.
+일반 사용자 권한에서 첫 `flutter pub get`이 플러그인 심볼릭 링크 생성 중 실패하면 위 보조 스크립트로 디렉터리 junction을 준비한 뒤 `flutter pub get`과 빌드를 다시 실행하세요. Windows 보안 저장소 플러그인에는 Visual Studio ATL 없이 빌드하기 위한 로컬 패치가 포함되어 있습니다.
 
-Python 서버는 필요하지 않습니다. 앱은 Flutter 네이티브 코드로 실행됩니다.
+빌드한 EXE는 프로젝트 루트에서 바로 실행할 수 있습니다. 탐색기의 **속성 → 자세히**에서 네 자리 버전을 확인할 수 있습니다. 앞 세 자리는 `VERSION`, 마지막 자리는 CI 빌드 번호 또는 Git 커밋 수입니다. 아래 명령은 `dist`에 배포 ZIP과 `SHA256SUMS.txt`를 생성합니다.
 
-Windows 탐색기의 **속성 → 자세히**에서 파일 버전과 제품 버전을 확인할 수 있습니다. 네 자리 중 앞 세 자리는 저장소 루트의 `VERSION`, 마지막 자리는 CI 빌드 번호 또는 로컬 Git 커밋 수입니다.
+```powershell
+powershell -NoProfile -File .\tools\package-windows-release.ps1
+```
 
-릴리스 빌드가 끝나면 프로젝트 루트의 `meme_searcher.exe`를 바로 실행할 수 있습니다. `powershell -NoProfile -File .\tools\package-windows-release.ps1`을 실행하면 `dist`에 배포 ZIP과 `SHA256SUMS.txt`가 생깁니다.
-
-GitHub에 배포하려면 최종 커밋에서 빌드한 뒤 아래 명령을 실행하세요. 주석 태그에 입력한 변경 사항이 릴리스 노트가 됩니다.
+GitHub에 게시하려면 최종 커밋에서 빌드한 뒤 주석 태그에 릴리스 노트를 입력하고 다음과 같이 배포합니다.
 
 ```powershell
 $tag = 'v' + (Get-Item .\meme_searcher.exe).VersionInfo.FileVersion
@@ -47,6 +65,6 @@ git push origin $tag
 powershell -NoProfile -File .\tools\package-windows-release.ps1 -Publish
 ```
 
-## 라이선스와 콘텐츠
+</details>
 
-이 저장소의 자체 소스에는 별도 라이선스가 지정되어 있지 않습니다. 포함된 서드파티 소프트웨어와 시드 밈 미디어의 권리는 각각의 권리자에게 있으며, 상세 고지와 원본 링크는 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)를 참고하세요.
+자체 소스에는 별도 라이선스가 지정되어 있지 않습니다. 포함된 소프트웨어와 밈의 권리자 및 원본 출처는 [서드파티 고지](THIRD_PARTY_NOTICES.md)에서 확인할 수 있습니다.
