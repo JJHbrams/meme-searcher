@@ -47,6 +47,9 @@ class _SearchScreenState extends State<SearchScreen> {
   bool _hasSearched = false;
   bool _cacheExpanded = false;
   bool _showSearchOptions = false;
+  bool _selectionMode = false;
+  bool _deleting = false;
+  final Set<String> _selectedAssetIds = <String>{};
   bool _openingSettings = false;
   String? _error;
   SerpApiQuota? _serpApiQuota;
@@ -131,6 +134,7 @@ class _SearchScreenState extends State<SearchScreen> {
       _error = null;
       _assets = [];
       _hasSearched = true;
+      _exitSelectionMode();
     });
     try {
       if (request.fullQuery.isNotEmpty) {
@@ -216,6 +220,7 @@ class _SearchScreenState extends State<SearchScreen> {
     _assets = [];
     _cachedAssets = [];
     _cacheExpanded = false;
+    _exitSelectionMode();
     if (value == _NavMode.conch) {
       ++_searchSerial;
       setState(() {
@@ -280,6 +285,87 @@ class _SearchScreenState extends State<SearchScreen> {
       ..showSnackBar(SnackBar(content: Text(message)));
   }
 
+  bool _isDeletable(MemeAsset asset) =>
+      !asset.isWeb && asset.id.trim().isNotEmpty;
+
+  bool get _canSelectDelete =>
+      !_hasSearched &&
+      _navMode != _NavMode.home &&
+      _navMode != _NavMode.conch &&
+      (_assets.any(_isDeletable) || _cachedAssets.any(_isDeletable));
+
+  void _exitSelectionMode() {
+    _selectionMode = false;
+    _selectedAssetIds.clear();
+  }
+
+  void _toggleSelection(MemeAsset asset) {
+    if (!_isDeletable(asset)) return;
+    setState(() {
+      if (!_selectedAssetIds.add(asset.id)) _selectedAssetIds.remove(asset.id);
+    });
+  }
+
+  Future<bool> _confirmDelete(int count) async {
+    return await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('로컬 짤 삭제'),
+            content: Text('밈서랍에서 짤 $count개를 삭제할까요? 이 작업은 되돌릴 수 없어요.'),
+            actions: [
+              TextButton(
+                key: const ValueKey('local-delete-cancel'),
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('취소'),
+              ),
+              FilledButton(
+                key: const ValueKey('confirm-delete'),
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('삭제'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+  }
+
+  Future<bool> _deleteAssets(
+    Iterable<String> assetIds, {
+    String? previewId,
+  }) async {
+    final ids = assetIds.toSet();
+    if (ids.isEmpty ||
+        _deleting ||
+        !await _confirmDelete(ids.length) ||
+        !mounted) {
+      return false;
+    }
+    setState(() => _deleting = true);
+    try {
+      final deleted = await widget.services.deleteLocalAssets(ids);
+      if (!mounted) return false;
+      setState(_exitSelectionMode);
+      if (!_hasSearched && _navMode != _NavMode.conch) {
+        // Re-read the shelf, including recent/favorite aliases affected by
+        // the deletion. Mixed searches keep their existing provider results.
+        await _loadPage();
+      } else if (_hasSearched && deleted == ids.length) {
+        setState(
+          () => _assets = _assets
+              .where((a) => a.id != previewId && !ids.contains(a.id))
+              .toList(),
+        );
+      }
+      _show(deleted > 0 ? '$deleted개 짤을 삭제했어요.' : '삭제할 로컬 짤을 찾지 못했어요.');
+      return deleted > 0;
+    } catch (_) {
+      if (mounted) _show('삭제하지 못했어요. 다시 시도해 주세요.');
+    } finally {
+      if (mounted) setState(() => _deleting = false);
+    }
+    return false;
+  }
+
   String _source(MemeAsset asset) {
     final labels = <String>[];
     if (asset.origin == 'cache') {
@@ -322,7 +408,7 @@ class _SearchScreenState extends State<SearchScreen> {
     }
     if (!mounted || page != _searchSerial) return;
     try {
-      await showDialog<void>(
+      final deleted = await showDialog<bool>(
         context: context,
         builder: (context) => _PreviewDialog(
           asset: asset,
@@ -353,9 +439,11 @@ class _SearchScreenState extends State<SearchScreen> {
               await _loadPage();
             }
           },
+          canDelete: _isDeletable(asset),
+          onDelete: (id) => _deleteAssets([id], previewId: asset.id),
         ),
       );
-      if (mounted && !_hasSearched) await _loadPage();
+      if (mounted && deleted != true && !_hasSearched) await _loadPage();
     } catch (_) {
       _show('미리보기를 열지 못했어요.');
     }
@@ -440,6 +528,15 @@ class _SearchScreenState extends State<SearchScreen> {
                           quotaLabel: _serpApiQuotaLabel(),
                           quotaLoading: _serpApiQuotaLoading,
                           onQuotaRefresh: _refreshSerpApiQuota,
+                          selectionMode: _selectionMode,
+                          canSelectDelete: _canSelectDelete,
+                          onToggleSelection: () => setState(() {
+                            if (_selectionMode) {
+                              _exitSelectionMode();
+                            } else {
+                              _selectionMode = true;
+                            }
+                          }),
                         ),
                         SizedBox(height: home ? 12 : 30),
                       ],
@@ -499,29 +596,42 @@ class _SearchScreenState extends State<SearchScreen> {
       ],
     );
     return Scaffold(
-      body: SafeArea(
-        child: home
-            ? NestedScrollView(
-                controller: _scroll,
-                headerSliverBuilder: (context, innerBoxIsScrolled) => [
-                  SliverToBoxAdapter(
-                    child: AspectRatio(
-                      aspectRatio: 3,
-                      child: Image.asset(
-                        'docs/media/meme-drawer.jpg',
-                        fit: BoxFit.contain,
-                        semanticLabel: 'Meme Snatcher 짤 서랍',
+      body: CallbackShortcuts(
+        bindings: {
+          const SingleActivator(LogicalKeyboardKey.escape): () {
+            if (_selectionMode) setState(_exitSelectionMode);
+          },
+        },
+        child: Focus(
+          autofocus: true,
+          child: SafeArea(
+            child: home
+                ? NestedScrollView(
+                    controller: _scroll,
+                    headerSliverBuilder: (context, innerBoxIsScrolled) => [
+                      SliverToBoxAdapter(
+                        child: AspectRatio(
+                          aspectRatio: 3,
+                          child: Image.asset(
+                            'docs/media/meme-drawer.jpg',
+                            fit: BoxFit.contain,
+                            semanticLabel: 'Meme Snatcher 짤 서랍',
+                          ),
+                        ),
                       ),
-                    ),
-                  ),
-                ],
-                body: page,
-              )
-            : page,
+                    ],
+                    body: page,
+                  )
+                : page,
+          ),
+        ),
       ),
-      bottomNavigationBar: wide
-          ? null
-          : NavigationBar(
+      bottomNavigationBar: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (_selectionMode) _selectionBar(),
+          if (!wide)
+            NavigationBar(
               selectedIndex: _navMode.index,
               onDestinationSelected: (index) =>
                   _changeNav(_NavMode.values[index]),
@@ -553,8 +663,49 @@ class _SearchScreenState extends State<SearchScreen> {
                 ),
               ],
             ),
+        ],
+      ),
     );
   }
+
+  Widget _selectionBar() => SafeArea(
+    top: false,
+    child: Material(
+      color: MemeTheme.surfaceRaised,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        child: Row(
+          children: [
+            TextButton(
+              key: const ValueKey('local-delete-selection-cancel'),
+              onPressed: _deleting ? null : () => setState(_exitSelectionMode),
+              child: const Text('취소'),
+            ),
+            Expanded(
+              child: Text(
+                '${_selectedAssetIds.length}개 선택',
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontWeight: FontWeight.w800),
+              ),
+            ),
+            FilledButton.icon(
+              key: const ValueKey('delete-selected'),
+              onPressed: _selectedAssetIds.isEmpty || _deleting
+                  ? null
+                  : () => _deleteAssets(_selectedAssetIds),
+              icon: _deleting
+                  ? const SizedBox.square(
+                      dimension: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.delete_outline),
+              label: const Text('삭제'),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
 
   Widget _searchBox() => Form(
     child: Row(
@@ -982,12 +1133,17 @@ class _SearchScreenState extends State<SearchScreen> {
       );
 
   Widget _resultCard(MemeAsset asset) {
+    final selectable = _selectionMode && _isDeletable(asset);
     Widget card(MemeAsset item, {bool probing = false}) => _MemeCard(
       asset: item,
       source: _source(item),
       mediaInfo: _mediaInfo(item),
       probing: probing,
-      onTap: () => _openAsset(item),
+      onTap: _selectionMode
+          ? (selectable ? () => _toggleSelection(item) : null)
+          : () => _openAsset(item),
+      selectionMode: selectable,
+      selected: _selectedAssetIds.contains(item.id),
     );
     if (!asset.isWeb || asset.displayFormat != null) return card(asset);
     return FutureBuilder<String?>(
@@ -1021,6 +1177,9 @@ class _Header extends StatelessWidget {
     required this.quotaLabel,
     required this.quotaLoading,
     required this.onQuotaRefresh,
+    required this.selectionMode,
+    required this.canSelectDelete,
+    required this.onToggleSelection,
   });
 
   final String title;
@@ -1030,6 +1189,9 @@ class _Header extends StatelessWidget {
   final String quotaLabel;
   final bool quotaLoading;
   final VoidCallback onQuotaRefresh;
+  final bool selectionMode;
+  final bool canSelectDelete;
+  final VoidCallback onToggleSelection;
 
   @override
   Widget build(BuildContext context) => Row(
@@ -1048,6 +1210,13 @@ class _Header extends StatelessWidget {
         Text(
           '$assetCount개 밈',
           style: const TextStyle(color: MemeTheme.muted, fontSize: 12),
+        ),
+      if (canSelectDelete)
+        TextButton.icon(
+          key: const ValueKey('select-delete'),
+          onPressed: onToggleSelection,
+          icon: Icon(selectionMode ? Icons.close : Icons.checklist),
+          label: Text(selectionMode ? '선택 취소' : '선택 삭제'),
         ),
       if (compact)
         IconButton(
@@ -1363,13 +1532,17 @@ class _MemeCard extends StatelessWidget {
     required this.mediaInfo,
     required this.probing,
     required this.onTap,
+    required this.selectionMode,
+    required this.selected,
   });
 
   final MemeAsset asset;
   final String source;
   final String mediaInfo;
   final bool probing;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
+  final bool selectionMode;
+  final bool selected;
 
   @override
   Widget build(BuildContext context) => Material(
@@ -1377,7 +1550,10 @@ class _MemeCard extends StatelessWidget {
     clipBehavior: Clip.antiAlias,
     shape: RoundedRectangleBorder(
       borderRadius: BorderRadius.circular(12),
-      side: const BorderSide(color: MemeTheme.border),
+      side: BorderSide(
+        color: selected ? MemeTheme.accent : MemeTheme.border,
+        width: selected ? 2 : 1,
+      ),
     ),
     child: InkWell(
       onTap: onTap,
@@ -1390,6 +1566,14 @@ class _MemeCard extends StatelessWidget {
               children: [
                 _AssetImage(asset: asset, fit: BoxFit.cover),
                 Positioned(left: 7, top: 7, child: SourceBadge(label: source)),
+                if (selectionMode)
+                  Positioned(
+                    left: 7,
+                    bottom: 7,
+                    child: IgnorePointer(
+                      child: Checkbox(value: selected, onChanged: (_) {}),
+                    ),
+                  ),
                 Positioned(
                   right: 7,
                   top: 7,
@@ -1491,6 +1675,8 @@ class _PreviewDialog extends StatefulWidget {
     required this.onInspected,
     required this.onFavoriteChanged,
     required this.onLibraryChanged,
+    required this.canDelete,
+    required this.onDelete,
   });
 
   final MemeAsset asset;
@@ -1500,6 +1686,8 @@ class _PreviewDialog extends StatefulWidget {
   final ValueChanged<MemeAsset> onInspected;
   final ValueChanged<bool> onFavoriteChanged;
   final Future<void> Function() onLibraryChanged;
+  final bool canDelete;
+  final Future<bool> Function(String id) onDelete;
 
   @override
   State<_PreviewDialog> createState() => _PreviewDialogState();
@@ -1507,6 +1695,8 @@ class _PreviewDialog extends StatefulWidget {
 
 class _PreviewDialogState extends State<_PreviewDialog> {
   MediaFile? _media;
+  String? _savedAssetId;
+  String? _copiedCachePath;
   String? _error;
   bool _busy = true;
   bool _previewOnly = false;
@@ -1631,6 +1821,7 @@ class _PreviewDialogState extends State<_PreviewDialog> {
         media,
         title: widget.asset.hasGeneratedCacheTitle ? '이미지' : widget.asset.title,
       );
+      _savedAssetId = saved.id;
       if (mounted && saved.filePath != null) {
         _media = MediaFile(
           bytes: media.bytes,
@@ -1642,6 +1833,31 @@ class _PreviewDialogState extends State<_PreviewDialog> {
       _notify('내 짤에 저장했어요.');
     } catch (_) {
       _notify('저장하지 못했어요.', error: true);
+    }
+  }
+
+  Future<void> _delete() async {
+    var id = _savedAssetId ?? widget.asset.id;
+    final copiedPath = _copiedCachePath;
+    if (_savedAssetId == null && copiedPath != null) {
+      try {
+        final library = await widget.services.library();
+        if (!mounted) return;
+        id =
+            library
+                .where((asset) => asset.filePath == copiedPath)
+                .firstOrNull
+                ?.id ??
+            id;
+      } catch (_) {
+        _notify('내 짤을 불러오지 못했어요. 다시 시도해 주세요.', error: true);
+        return;
+      }
+    }
+    if (await widget.onDelete(id) &&
+        mounted &&
+        ModalRoute.of(context)?.isCurrent == true) {
+      Navigator.pop(context, true);
     }
   }
 
@@ -1680,7 +1896,12 @@ class _PreviewDialogState extends State<_PreviewDialog> {
         return result.completed;
       });
       if (!copied) return;
-      if (mounted && clipboardFile != null) _media = clipboardFile;
+      if (mounted && clipboardFile != null) {
+        _media = clipboardFile;
+        if (widget.asset.origin == 'cache') {
+          _copiedCachePath = clipboardFile!.path;
+        }
+      }
       unawaited(onLibraryChanged());
       if (!mounted) return;
       _notify(success);
@@ -1866,6 +2087,13 @@ class _PreviewDialogState extends State<_PreviewDialog> {
                                   : _saveToLibrary,
                               icon: const Icon(Icons.add_to_photos_outlined),
                               label: const Text('내 짤에 저장'),
+                            ),
+                          if (widget.canDelete)
+                            OutlinedButton.icon(
+                              key: const ValueKey('preview-delete'),
+                              onPressed: _busy ? null : _delete,
+                              icon: const Icon(Icons.delete_outline),
+                              label: const Text('삭제'),
                             ),
                           if (widget.asset.sourceUrl != null ||
                               widget.asset.originalUrl != null)

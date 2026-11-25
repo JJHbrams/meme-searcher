@@ -83,10 +83,11 @@ class DeviceAppServices implements AppServices {
       directory: testDirectory == null ? null : Directory(testDirectory),
       bundledDigests: MemeCatalog.bundledDigests,
     );
+    _store!.registerBundledDigests(MemeCatalog.bundledDigests);
     _visualMatcher = await VisualMatcher.load(_bundle);
     final seeds = MemeCatalog.seedAssets
         .map(catalog.seedToAsset)
-        .where((seed) => _store!.byId(seed.id) == null);
+        .where((seed) => _store!.shouldSeed(seed.id));
     await _store!.upsertAll(seeds);
     _initialized = true;
   }
@@ -363,6 +364,12 @@ class DeviceAppServices implements AppServices {
     bool preferCached = true,
   }) async {
     await initialize();
+    if (_store!.isSeedDeleted(asset.id)) {
+      // A stale visible card must not materialize bytes for a sample that the
+      // user just removed.  Already-loaded MediaFile values can still be
+      // explicitly saved again through saveToLibrary.
+      throw StateError('Local asset was removed.');
+    }
     if (preferCached && asset.filePath != null) {
       final local = await _readLocal(asset, asset.filePath!);
       if (local != null) return local;
@@ -563,6 +570,12 @@ class DeviceAppServices implements AppServices {
   Future<void> markRecent(String assetId, {MemeAsset? asset}) async {
     await initialize();
     await _store!.recent(assetId, asset: asset);
+  }
+
+  @override
+  Future<int> deleteLocalAssets(Iterable<String> assetIds) async {
+    await initialize();
+    return _store!.deleteLocalAssets(assetIds);
   }
 
   @override
