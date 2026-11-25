@@ -8,6 +8,7 @@ import 'package:meme_searcher/core/device_app_services.dart';
 import 'package:meme_searcher/core/local_library_store.dart';
 import 'package:meme_searcher/core/models.dart';
 import 'package:meme_searcher/core/query_plan.dart';
+import 'package:meme_searcher/core/serpapi_account.dart';
 import 'package:meme_searcher/core/web_collectors.dart';
 
 void main() {
@@ -70,6 +71,28 @@ void main() {
     );
     expect(withoutSimilar.assets, isEmpty);
     expect(withSimilar.assets, isNotEmpty);
+  });
+
+  test('account quota follows the currently configured key', () async {
+    const sample = SerpApiQuota(monthlyRemaining: 14, monthlyLimit: 20);
+    final requests = <String>[];
+    final app = DeviceAppServices(
+      store: store,
+      verifyKey: (_) async {},
+      fetchQuota: (key) async {
+        requests.add(key);
+        return sample;
+      },
+    );
+    // The synthetic stored value also masks any developer environment key.
+    FlutterSecureStorage.setMockInitialValues({'serpapi_api_key': ''});
+    expect(await app.readSerpApiQuota(), isNull);
+    expect(requests, isEmpty);
+    await app.writeSerpApiKey('test-one');
+    expect(await app.readSerpApiQuota(), same(sample));
+    await app.writeSerpApiKey('test-two');
+    expect(await app.readSerpApiQuota(), same(sample));
+    expect(requests, ['test-one', 'test-two']);
   });
 
   test(

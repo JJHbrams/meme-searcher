@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:meme_searcher/core/app_services.dart';
 import 'package:meme_searcher/core/models.dart';
+import 'package:meme_searcher/core/serpapi_account.dart';
 import 'package:meme_searcher/platform/media_actions.dart';
 import 'package:meme_searcher/ui/app_theme.dart';
 import 'package:meme_searcher/ui/screens/search_screen.dart';
@@ -210,7 +211,7 @@ void main() {
     (tester) async {
       final services = _FakeServices();
       await openApp(tester, services);
-      final banner = find.bySemanticsLabel('Meme Searcher 짤 서랍');
+      final banner = find.bySemanticsLabel('Meme Snatcher 짤 서랍');
       expect(banner, findsOneWidget);
       final bounds = tester.getRect(banner);
       expect(bounds.topLeft, Offset.zero);
@@ -265,6 +266,53 @@ void main() {
       expect(find.text('Library asset'), findsOneWidget);
     },
   );
+
+  testWidgets('sidebar shows a readable SerpApi quota and can refresh it', (
+    tester,
+  ) async {
+    final services = _FakeServices()
+      ..quota = const SerpApiQuota(
+        monthlyLimit: 100,
+        monthlyRemaining: 8,
+        totalRemaining: 11,
+        extraCredits: 3,
+      );
+    await openApp(tester, services);
+
+    final quotaLabel = find.bySemanticsLabel(RegExp('SerpApi 검색 잔여량'));
+    expect(quotaLabel, findsWidgets);
+    expect(find.text('총 11회 남음'), findsOneWidget);
+    expect(find.text('이번 달 8 / 100회 남음'), findsOneWidget);
+    expect(find.text('추가 크레딧 3회'), findsOneWidget);
+    expect(services.quotaReads, 1);
+
+    await tester.tap(find.byTooltip('SerpApi 잔여량 새로고침'));
+    await tester.pumpAndSettle();
+    expect(services.quotaReads, 2);
+
+    await tester.binding.setSurfaceSize(const Size(1280, 720));
+    await tester.pumpAndSettle();
+    expect(find.text('총 11회 남음').hitTestable(), findsOneWidget);
+    await tester.binding.setSurfaceSize(const Size(1920, 720));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('only web and all searches refresh the SerpApi quota', (
+    tester,
+  ) async {
+    final services = _FakeServices();
+    await openApp(tester, services);
+    expect(services.quotaReads, 1);
+
+    await tester.tap(find.text('내 짤'));
+    await searchFromHome(tester, 'local only');
+    expect(services.quotaReads, 1);
+
+    await tester.tap(find.text('웹'));
+    await searchFromHome(tester, 'web only');
+    expect(services.quotaReads, 2);
+  });
 
   testWidgets('Home limits sections to five and opens a query and an asset', (
     tester,
@@ -377,6 +425,8 @@ class _FakeServices implements AppServices {
   bool failDeferral = false;
   String? savedKey;
   bool failOriginal = false;
+  SerpApiQuota? quota;
+  int quotaReads = 0;
   MemeAsset asset = const MemeAsset(
     id: 'approved',
     title: 'Approved meme',
@@ -469,6 +519,12 @@ class _FakeServices implements AppServices {
 
   @override
   Future<String?> readSerpApiKey() async => null;
+
+  @override
+  Future<SerpApiQuota?> readSerpApiQuota() async {
+    quotaReads += 1;
+    return quota;
+  }
 
   @override
   Future<void> deleteSerpApiKey() async {}

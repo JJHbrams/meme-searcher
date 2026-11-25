@@ -17,7 +17,7 @@ class MemeSearcherApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => MaterialApp(
-    title: 'Meme Searcher',
+    title: 'Meme Snatcher',
     debugShowCheckedModeBanner: false,
     theme: MemeTheme.build(),
     home: SearchScreen(services: services, actions: actions),

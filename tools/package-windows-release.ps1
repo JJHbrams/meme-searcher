@@ -104,7 +104,7 @@ if ($Publish) {
 
     Push-Location -LiteralPath $repoRoot
     try {
-        & gh release create $tag $archivePath $checksumPath --verify-tag --latest --notes-from-tag --title "Meme Searcher $tag (Windows x64)"
+        & gh release create $tag $archivePath $checksumPath --verify-tag --latest --notes-from-tag --title "Meme Snatcher $tag (Windows x64)"
         Assert-LastExitCode 'Publishing GitHub release'
     } finally {
         Pop-Location

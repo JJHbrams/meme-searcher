@@ -1,6 +1,6 @@
-![Meme Searcher — 반응 짤이 튀어나오는 연두색 짤 서랍](docs/media/meme-drawer.jpg)
+![Meme Snatcher — 반응 짤이 튀어나오는 연두색 짤 서랍](docs/media/meme-drawer.jpg)
 
-# 그 짤 어디 있었지?
+# Meme Snatcher · 그 짤 어디 있었지?
 
 기억나는 대사로 **내 짤과 웹을 한 번에 검색**하세요. 찾은 짤은 `Ctrl+C` → 채팅창에서 `Ctrl+V`.
 

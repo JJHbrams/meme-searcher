@@ -1,4 +1,5 @@
 import 'models.dart';
+import 'serpapi_account.dart';
 
 abstract interface class AppServices {
   Future<void> initialize();
@@ -37,6 +38,8 @@ abstract interface class AppServices {
   Future<SettingsState> settings();
 
   Future<String?> readSerpApiKey();
+
+  Future<SerpApiQuota?> readSerpApiQuota();
 
   Future<void> writeSerpApiKey(String key);
 
