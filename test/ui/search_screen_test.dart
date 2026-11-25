@@ -188,6 +188,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(services.searches, 1);
     expect(find.text('Approved meme'), findsOneWidget);
+    expect(find.widgetWithText(ChoiceChip, '이미지'), findsOneWidget);
   });
 
   testWidgets(

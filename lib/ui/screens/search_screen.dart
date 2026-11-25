@@ -503,7 +503,7 @@ class _SearchScreenState extends State<SearchScreen> {
         [
               (MediaFilter.all, '전체'),
               (MediaFilter.gif, 'GIF'),
-              (MediaFilter.staticImage, '정지'),
+              (MediaFilter.staticImage, '이미지'),
             ]
             .map(
               (item) => ChoiceChip(
