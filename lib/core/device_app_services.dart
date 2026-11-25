@@ -136,6 +136,12 @@ class DeviceAppServices implements AppServices {
               asset.isGif,
         )
         .toList(growable: false);
+    // Keep the user's words (including selected tags) with anything that may
+    // be materialized into the drawer. Provider query rewrites are only for
+    // transport and must never become the cache's human-facing label.
+    ranked = ranked
+        .map((asset) => asset.copyWith(submittedQuery: request.fullQuery))
+        .toList(growable: false);
     if (request.scope != SearchScope.library &&
         (plan.familyId != null || request.filter == MediaFilter.gif)) {
       ranked = await _probeVisual(ranked, plan);
@@ -300,7 +306,7 @@ class DeviceAppServices implements AppServices {
 
   bool _matchesLocal(MemeAsset asset, QueryPlan plan) {
     final value = compactMemeText(
-      '${asset.title} ${asset.familyName ?? ''} ${asset.variant ?? ''} ${asset.aliases.join(' ')} ${asset.tags.map((tag) => tag.label).join(' ')}',
+      '${asset.title} ${asset.submittedQuery ?? ''} ${asset.familyName ?? ''} ${asset.variant ?? ''} ${asset.aliases.join(' ')} ${asset.tags.map((tag) => tag.label).join(' ')}',
     );
     final core = plan.coreTerms
         .where((term) => term.isNotEmpty)

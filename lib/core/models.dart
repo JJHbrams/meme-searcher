@@ -111,6 +111,7 @@ class MemeAsset {
     this.referenceId,
     this.visualScore,
     this.addedAt,
+    this.submittedQuery,
   });
 
   final String id;
@@ -150,6 +151,10 @@ class MemeAsset {
   final num? visualScore;
   final DateTime? addedAt;
 
+  /// The exact text submitted by the user when this remote result was cached.
+  /// It deliberately is not the provider-normalized query or a result title.
+  final String? submittedQuery;
+
   bool get isGif => (format ?? formatHint ?? '').toUpperCase() == 'GIF';
   String? get displayFormat =>
       knownImageFormat(format) ??
@@ -157,6 +162,21 @@ class MemeAsset {
       imageFormatFromUrl(originalUrl);
   bool get isWeb => origin == 'web';
   String get primaryEngine => engines.isEmpty ? '' : engines.first;
+
+  bool get hasGeneratedCacheTitle {
+    final value = title.trim();
+    return value.isEmpty ||
+        RegExp(r'^[a-f0-9]{8,64}$', caseSensitive: false).hasMatch(value) ||
+        RegExp(r'^이전\s+\S+\s+짤\s+·\s+[a-f0-9]{8,64}$').hasMatch(value);
+  }
+
+  /// The query is only a label for temporary cache cards. Live results and
+  /// permanent library entries retain their provider or user-assigned title.
+  String? get cacheDisplayLabel {
+    final query = submittedQuery?.trim();
+    if (query != null && query.isNotEmpty) return query;
+    return hasGeneratedCacheTitle ? null : title.trim();
+  }
 
   MemeAsset copyWith({
     String? id,
@@ -195,6 +215,7 @@ class MemeAsset {
     String? referenceId,
     num? visualScore,
     DateTime? addedAt,
+    String? submittedQuery,
   }) => MemeAsset(
     id: id ?? this.id,
     title: title ?? this.title,
@@ -232,6 +253,7 @@ class MemeAsset {
     referenceId: referenceId ?? this.referenceId,
     visualScore: visualScore ?? this.visualScore,
     addedAt: addedAt ?? this.addedAt,
+    submittedQuery: submittedQuery ?? this.submittedQuery,
   );
 
   Map<String, Object?> toJson() => {
@@ -271,6 +293,7 @@ class MemeAsset {
     'referenceId': referenceId,
     'visualScore': visualScore,
     'addedAt': addedAt?.toIso8601String(),
+    'submittedQuery': submittedQuery,
   };
 
   factory MemeAsset.fromJson(Map<String, Object?> json) {
@@ -329,6 +352,7 @@ class MemeAsset {
       referenceId: json['referenceId'] as String?,
       visualScore: json['visualScore'] as num?,
       addedAt: DateTime.tryParse(json['addedAt'] as String? ?? ''),
+      submittedQuery: json['submittedQuery'] as String?,
     );
   }
 }

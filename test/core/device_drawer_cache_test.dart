@@ -94,6 +94,40 @@ void main() {
     },
   );
 
+  test(
+    'cache keeps the submitted keywords, including tags, on a reused URI',
+    () async {
+      final downloads = _Downloader({
+        'https://example.test/original.gif': _gifA,
+      });
+      final app = await _app(
+        root,
+        downloader: downloads,
+        naverSearch: (_) async => [_web('one', title: 'provider title')],
+      );
+      final response = await app.search(
+        const SearchRequest(
+          query: 'wapa~',
+          tags: ['friends'],
+          scope: SearchScope.web,
+        ),
+      );
+      await app.loadMedia(response.assets.single);
+      // A later provider snapshot reuses local bytes; it must not replace the
+      // actual query with the provider title or normalized provider query.
+      await app.loadMedia(
+        _web(
+          'two',
+          title: 'different provider title',
+        ).copyWith(submittedQuery: 'whoopah'),
+      );
+      final cached = (await app.cachedLibrary()).single;
+      expect(cached.submittedQuery, 'whoopah');
+      expect(cached.cacheDisplayLabel, 'whoopah');
+      expect(downloads.downloads['https://example.test/original.gif'], 1);
+    },
+  );
+
   test('copy promotion gives native code a durable path and removes temporary entry', () async {
     final downloads = _Downloader({
       'https://example.test/original.gif': _gifA,

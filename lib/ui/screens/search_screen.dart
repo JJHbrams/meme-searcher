@@ -820,14 +820,18 @@ class _SearchScreenState extends State<SearchScreen> {
                                 fit: BoxFit.cover,
                               ),
                             ),
-                            Padding(
-                              padding: const EdgeInsets.all(8),
-                              child: Text(
-                                asset.title,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
+                            if (asset.origin != 'cache' ||
+                                asset.cacheDisplayLabel != null)
+                              Padding(
+                                padding: const EdgeInsets.all(8),
+                                child: Text(
+                                  asset.origin == 'cache'
+                                      ? asset.cacheDisplayLabel!
+                                      : asset.title,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
                               ),
-                            ),
                           ],
                         ),
                       ),
@@ -1406,13 +1410,18 @@ class _MemeCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  asset.title,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontWeight: FontWeight.w700),
-                ),
-                const SizedBox(height: 3),
+                if (asset.origin != 'cache' ||
+                    asset.cacheDisplayLabel != null) ...[
+                  Text(
+                    asset.origin == 'cache'
+                        ? asset.cacheDisplayLabel!
+                        : asset.title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                  const SizedBox(height: 3),
+                ],
                 Text(
                   asset.variant ?? asset.familyName ?? '웹 검색 후보',
                   maxLines: 1,
@@ -1625,7 +1634,7 @@ class _PreviewDialogState extends State<_PreviewDialog> {
     try {
       final saved = await widget.services.saveToLibrary(
         media,
-        title: widget.asset.title,
+        title: widget.asset.hasGeneratedCacheTitle ? '이미지' : widget.asset.title,
       );
       if (mounted && saved.filePath != null) {
         _media = MediaFile(
@@ -1779,12 +1788,17 @@ class _PreviewDialogState extends State<_PreviewDialog> {
                           fontWeight: FontWeight.w800,
                         ),
                       ),
-                      const SizedBox(height: 5),
-                      Text(
-                        widget.asset.title,
-                        style: Theme.of(context).textTheme.titleLarge,
-                      ),
-                      const SizedBox(height: 5),
+                      if (widget.asset.origin != 'cache' ||
+                          widget.asset.cacheDisplayLabel != null) ...[
+                        const SizedBox(height: 5),
+                        Text(
+                          widget.asset.origin == 'cache'
+                              ? widget.asset.cacheDisplayLabel!
+                              : widget.asset.title,
+                          style: Theme.of(context).textTheme.titleLarge,
+                        ),
+                        const SizedBox(height: 5),
+                      ],
                       Text(
                         _SearchScreenState._mediaInfo(displayed),
                         style: const TextStyle(color: MemeTheme.muted),
