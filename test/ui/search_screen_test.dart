@@ -478,6 +478,8 @@ void main() {
     await tester.pump();
     await tester.tap(find.text('Cache delete'));
     await tester.pump();
+    await tester.ensureVisible(find.text('Library delete'));
+    await tester.pump();
     await tester.tap(find.text('Library delete'));
     await tester.pump();
     expect(find.text('2개 선택'), findsOneWidget);
@@ -520,11 +522,17 @@ void main() {
   });
 
   testWidgets('web-only preview never offers local deletion', (tester) async {
-    final services = _FakeServices();
+    final services = _FakeServices()
+      ..asset = const MemeAsset(
+        id: 'web-only-result',
+        title: 'Web-only result',
+        origin: 'web',
+        format: 'PNG',
+      );
     await openApp(tester, services);
     await tester.tap(find.text('웹'));
     await searchFromHome(tester, 'web result');
-    await tester.tap(find.text('Approved meme'));
+    await tester.tap(find.text('Web-only result'));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('preview-delete')), findsNothing);
   });
