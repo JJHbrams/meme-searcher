@@ -6,11 +6,13 @@ header{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-betw
 @media(max-width:620px){body{font-size:15px}h2{font-size:23px}.summary{padding:14px}.summary dl div{grid-template-columns:1fr;gap:0}.summary dt{padding:0}td,th{padding:7px;min-width:65px}.branches small{font-size:12px}}
 @media print{html,main{background:white}main{padding:0;width:auto;border-top:0}.summary{background:white;color:#111;border:1px solid #999}.summary h2,.summary dt{color:#222}.summary dl div{border-color:#ddd}.table-wrap{overflow:visible}tr,.flow,h3{break-inside:avoid}h2,h3{break-after:avoid}}
 </style></head><body><main><header><strong>Meme Snatcher</strong><span>검색 품질 검토 · v1.3.0.21 · 2026.11.25</span></header><h1>같은 대사에서 내 취향의 짤을 먼저 찾으려면</h1>
-<section class="summary"><h2>한눈에 보기</h2><dl><div><dt>목적</dt><dd>Meme Snatcher의 내장 사전과 통합 검색 규칙을 확인하고 개인화의 첫 적용 지점을 고른다.</dd></div><div><dt>현재 상태</dt><dd>Windows v1.3.0.21의 코드·번들·격리된 로컬 검색을 확인했다.</dd></div><div><dt>핵심 결론</dt><dd>같은 대사의 변형 중 내가 자주 고르는 짤을 먼저 보여주는 일은 LLM 없이 가능하다.</dd></div><div><dt>원인 또는 판단 근거</dt><dd>앱은 밈 계열과 변형, 즐겨찾기를 이미 구분한다. 현재 통합 정렬에는 사용자 행동이 입력되지 않는다.</dd></div><div><dt>결정</dt><dd>검토안은 <strong>같은 관련도의 결과 안에서 즐겨찾기부터 반영</strong>하는 방식이다. 제품 적용은 미정이다.</dd></div><div><dt>다음 행동</dt><dd>헬다이버즈를 선호하는 사용자와 케장콘을 선호하는 사용자에게 같은 검색을 재생해 순서와 필터 보존을 확인한다.</dd></div><div><dt>최종 갱신</dt><dd>2026-11-25 · 릴리스 커밋 <code>930172b</code></dd></div></dl></section>
+<section class="summary"><h2>한눈에 보기</h2><dl><div><dt>목적</dt><dd>국내·해외 밈을 담은 지식 DB로 웹 검색에서 일반 이미지를 줄이고, 관련도 높은 짤 사이에서 사용자 취향을 반영하는 방법을 검토한다.</dd></div><div><dt>현재 상태</dt><dd>Windows v1.3.0.21의 코드·번들·격리된 로컬 검색을 확인했다.</dd></div><div><dt>핵심 결론</dt><dd>검색 품질의 첫 과제는 일반 사진과 밈을 구별하는 일이다. 개인화는 그 뒤에 적용한다.</dd></div><div><dt>원인 또는 판단 근거</dt><dd>현재 카탈로그는 3개 계열의 예시다. 미등록 영어 검색에 일반적인 밈 확장이 없고, 웹 후보에서 밈 단서를 판단하는 규칙도 제한적이다.</dd></div><div><dt>결정</dt><dd>제품에서 말하는 ‘밈사전’은 국내·해외 밈의 이름·대사·템플릿·파생 관계를 연결한 DB다. 버전형 SQLite 사전과 로컬 규칙 정렬을 구현 후보로 권한다.</dd></div><div><dt>다음 행동</dt><dd>국내·해외 자료 표본으로 후보 DB를 만들고, 기존 검색과 동일한 결과에서 일반 이미지 오탐과 미등록 밈 누락을 비교한다.</dd></div><div><dt>최종 갱신</dt><dd>2026-11-25 · 릴리스 커밋 <code>930172b</code></dd></div></dl></section>
 <h2>질문</h2>
+<p><strong>처음 보는 밈도 일반 이미지에 묻히지 않게 할 수 있을까?</strong> 검색 결과에 붙은 대사·출처·템플릿 단서를 기존 사전과 대조하고, 새로운 표현을 가진 후보도 검색 의도와 맞으면 남기는 것이 목표다.</p>
 <p><strong>“좋다 지금 간다 기다려라”를 입력한 두 사람이 서로 다른 짤을 원한다면?</strong> 한 사람은 케장콘 원본을, 다른 사람은 헬다이버즈 패러디를 원한다. 이 사례로 사전, 검색 조건, 취향이 각각 무엇을 결정해야 하는지 살펴봤다.</p>
 <h2>짧은 답</h2>
 <ul>
+<li><strong>대량 수집의 단위는 밈 항목과 그 근거다.</strong> 해외 원명·한국어 별칭·사용 상황·템플릿·변형 관계를 연결하면, 같은 파일을 아직 갖고 있지 않아도 검색 단서를 얻을 수 있다.</li>
 <li><strong>검색어는 후보를 모으고 태그는 범위를 좁힌다.</strong> 현재 로컬 태그가 계열 별칭까지 읽는 예외가 있다. <strong>그중 어떤 버전을 먼저 볼지</strong>는 사용자의 선택 기록으로 정할 수 있다.</li>
 <li><strong>내가 뭐라고 부르는지</strong>는 별도 문제다. 예컨대 사용자가 ‘출동짤’을 특정 짤의 내 별칭으로 지정하면, 원래 제목을 몰라도 다음에 바로 찾을 수 있다.</li>
 </ul>
@@ -162,6 +164,38 @@ header{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-betw
 <li><strong>후보의 순서를 바꿔도 없는 짤은 생기지 않는다.</strong> 새 커뮤니티 밈이나 자신만의 표현을 찾는 문제에는 ‘내 별칭’ 또는 사용자가 선택하는 검색어 확장이 별도로 필요하다.</li>
 </ul>
 <h2>권고 · 취향을 반영하는 순서</h2>
+<p>우선순위는 국내·해외 밈사전 구축, 고정된 웹 후보로 필터 검증, 비슷한 관련도의 후보 간 개인화 순이다.</p>
+<h3>제품에서 말하는 밈사전</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>DB에 남길 것</th>
+<th>검색에 쓰는 방법</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>밈 계열, 한국어·원어 이름, 별칭, 대사</td>
+<td>실제로 같은 이름을 가리키는지 출처와 함께 기록. 일반명사와 같은 짧은 별칭은 단독 일치의 영향 축소</td>
+</tr>
+<tr>
+<td>템플릿, 변형, 등장 캐릭터, 작품·팬덤, 쓰이는 상황</td>
+<td>‘별칭’, ‘이 템플릿의 패러디’, ‘같은 상황에서 쓰임’을 각각 다른 관계로 저장. 같은 팬덤이라는 이유로 서로 다른 짤을 병합하는 오류 방지</td>
+</tr>
+<tr>
+<td>출처, 수집·검토 시점, 이용 조건, 대표 이미지 지문</td>
+<td>중복과 충돌을 추적하고 근거 있는 항목만 배포. 이미지 원본을 함께 배포할 때는 해당 파일의 이용 조건도 별도 기록</td>
+</tr>
+</tbody>
+</table></div>
+<ul>
+<li><strong>수집과 배포.</strong> 배포자 쪽에서 허용된 덤프를 정기적으로 받아 출처별 원본 ID를 보존하고 중복·이름 충돌을 처리한다. 검토된 메타데이터를 버전이 붙은 SQLite 파일로 앱에 포함한다. 원본 미디어는 배포 가능한 것만 선택한다. 사용자 PC는 사전 갱신분만 받을 수 있다.</li>
+<li><strong>자료 후보.</strong> 해외 기초 데이터로는 CC0 구조화 덤프가 있는 Wikidata를 쓸 수 있다. 한국어 KoCulture-Descriptions는 503행의 <strong>텍스트</strong> 자료이며 공개 표기는 CC BY-NC-SA 4.0이다. 두 자료가 국내 커뮤니티별 변형을 얼마나 담고 있는지는 아직 측정하지 않았다. <a href="https://www.wikidata.org/wiki/Wikidata:Database_download">Wikidata 덤프</a> · <a href="https://huggingface.co/datasets/huggingface-KREW/KoCulture-Descriptions">한국어 데이터 카드</a></li>
+<li><strong>검색 예시.</strong> <code>승인</code>만으로는 결재 도장 사진과 너클즈 도장짤을 구별하기 어렵다. 제목·캡션에 ‘너클즈/Knuckles’와 ‘승인/Approved’가 함께 있거나 검증된 템플릿 지문이 맞으면 우선한다. 판매 페이지의 도장 상품은 낮춘다. 캐릭터명 하나로 평범한 게임 스크린샷까지 올리지는 않는다.</li>
+<li><strong>미등록 밈.</strong> 용어가 사전에 없어도 검색어와 맞는 캡션, 기존 템플릿의 변형, 서로 다른 출처의 반응짤 사용례처럼 독립적인 단서가 겹치면 후보로 유지한다. 커뮤니티 도메인 하나나 복제 페이지 여러 장은 약한 근거다. 텍스트도 템플릿 단서도 없는 완전히 새로운 그림은 판별이 어렵다.</li>
+<li><strong>평가.</strong> 국내·해외와 등록·미등록을 나누고, 새 밈은 한 계열 전체를 사전에서 빼 둔 채 평가한다. 같은 웹 후보를 기존 규칙과 새 규칙으로 각각 정렬해 상위 10개에 섞인 일반 사진 비율, 그리고 사람이 골라 둔 관련 밈 중 상위 10개에 살아남은 비율을 함께 본다. 사전을 키울수록 미등록 밈이 더 많이 사라진다면 그 규칙은 채택을 보류한다.</li>
+</ul>
+<h3>개인화를 얹는 순서</h3>
 <p><strong>먼저 고칠 필터</strong></p>
 <ul>
 <li>로컬에서 <code>#케장콘</code>처럼 사전에 등록된 태그를 입력하면, 후보의 실제 <code>tags.id</code>와 비교하는 안을 권한다.</li>
@@ -265,6 +299,10 @@ header{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-betw
 <tr>
 <td>2026-11-25</td>
 <td>v1.3.0.21의 내장 사전·수집·필터·정렬 확인. 로컬 재현과 개인화 제안 작성</td>
+</tr>
+<tr>
+<td>2026-11-25</td>
+<td>제품 의도에 맞춰 대규모 국내·해외 밈 지식 DB, 미등록 밈 판별, 데이터 출처와 검색 품질 평가를 추가</td>
 </tr>
 </tbody>
 </table></div></main></body></html>
