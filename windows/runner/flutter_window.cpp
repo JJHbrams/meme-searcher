@@ -451,7 +451,7 @@ bool SaveWithPicker(const std::wstring& source, const std::wstring& suggested_na
 }  // namespace
 
 FlutterWindow::FlutterWindow(const flutter::DartProject& project)
-    : project_(project) {}
+    : headless_test_(IsHeadlessTestMode()), project_(project) {}
 
 FlutterWindow::~FlutterWindow() {}
 
@@ -540,7 +540,7 @@ bool FlutterWindow::OnCreate() {
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
-    if (!IsHeadlessTestMode()) {
+    if (!headless_test_ && !tray_icon_.active()) {
       this->Show();
     }
   });
@@ -566,6 +566,9 @@ LRESULT
 FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
                               WPARAM const wparam,
                               LPARAM const lparam) noexcept {
+  if (!headless_test_ && tray_icon_.HandleMessage(hwnd, message, wparam, lparam)) {
+    return 0;
+  }
   // Give Flutter, including plugins, an opportunity to handle window messages.
   if (flutter_controller_) {
     std::optional<LRESULT> result =

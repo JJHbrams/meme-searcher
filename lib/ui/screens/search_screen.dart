@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
@@ -6,6 +7,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/app_services.dart';
 import '../../core/models.dart';
+import '../../core/serpapi_account.dart';
 import '../../platform/media_actions.dart';
 import '../app_theme.dart';
 import 'serpapi_settings_dialog.dart';
@@ -44,6 +46,11 @@ class _SearchScreenState extends State<SearchScreen> {
   bool _showSearchOptions = false;
   bool _openingSettings = false;
   String? _error;
+  SerpApiQuota? _serpApiQuota;
+  bool _serpApiQuotaLoading = false;
+  bool _serpApiQuotaChecked = false;
+  String? _serpApiQuotaError;
+  int _serpApiQuotaRequest = 0;
   int _searchSerial = 0;
   _NavMode _navMode = _NavMode.home;
 
@@ -66,6 +73,7 @@ class _SearchScreenState extends State<SearchScreen> {
     try {
       await widget.services.initialize();
       if (!mounted) return;
+      unawaited(_refreshSerpApiQuota());
       if (_searchSerial == 0) await _loadPage();
       if (mounted) await _openSettings(firstRun: true);
     } catch (_) {
@@ -142,7 +150,50 @@ class _SearchScreenState extends State<SearchScreen> {
       }
     } finally {
       if (mounted && serial == _searchSerial) setState(() => _loading = false);
+      if (request.scope != SearchScope.library) {
+        unawaited(_refreshSerpApiQuota());
+      }
     }
+  }
+
+  Future<void> _refreshSerpApiQuota() async {
+    if (!mounted) return;
+    final request = ++_serpApiQuotaRequest;
+    setState(() {
+      _serpApiQuotaLoading = true;
+      _serpApiQuotaError = null;
+    });
+    SerpApiQuota? result;
+    String? error;
+    try {
+      result = await widget.services.readSerpApiQuota();
+    } catch (_) {
+      error = '잔여량을 확인하지 못했어요';
+    }
+    if (!mounted || request != _serpApiQuotaRequest) return;
+    setState(() {
+      _serpApiQuota = result;
+      _serpApiQuotaError = error;
+      _serpApiQuotaChecked = true;
+      _serpApiQuotaLoading = false;
+    });
+  }
+
+  String _serpApiQuotaLabel() {
+    if (_serpApiQuotaLoading) return '확인 중';
+    if (_serpApiQuotaError != null) return _serpApiQuotaError!;
+    final quota = _serpApiQuota;
+    if (!_serpApiQuotaChecked) return '확인 전';
+    if (quota == null) return '연결 안 됨';
+    if (quota.totalRemaining != null) return '총 ${quota.totalRemaining}회 남음';
+    if (quota.monthlyLimit != null && quota.monthlyRemaining != null) {
+      return '이번 달 ${quota.monthlyRemaining} / ${quota.monthlyLimit}회';
+    }
+    if (quota.monthlyRemaining != null) {
+      return '이번 달 ${quota.monthlyRemaining}회 남음';
+    }
+    if (quota.extraCredits != null) return '추가 크레딧 ${quota.extraCredits}회';
+    return '정보 없음';
   }
 
   void _toTop() {
@@ -302,6 +353,7 @@ class _SearchScreenState extends State<SearchScreen> {
       if (connected == true && mounted) {
         _show('SerpApi 키를 확인하고 저장했어요. 웹 또는 모두에서 검색해 보세요.');
       }
+      unawaited(_refreshSerpApiQuota());
     } catch (_) {
       if (mounted) _show('검색 설정을 읽지 못했어요. 설정에서 다시 시도해 주세요.');
     } finally {
@@ -321,6 +373,11 @@ class _SearchScreenState extends State<SearchScreen> {
             mode: _navMode,
             onChanged: _changeNav,
             onSettings: _openSettings,
+            quota: _serpApiQuota,
+            quotaChecked: _serpApiQuotaChecked,
+            quotaLoading: _serpApiQuotaLoading,
+            quotaError: _serpApiQuotaError,
+            onQuotaRefresh: _refreshSerpApiQuota,
           ),
         Expanded(
           child: CustomScrollView(
@@ -342,6 +399,9 @@ class _SearchScreenState extends State<SearchScreen> {
                         assetCount: home || _loading ? null : _assets.length,
                         onSettings: _openSettings,
                         compact: !wide,
+                        quotaLabel: _serpApiQuotaLabel(),
+                        quotaLoading: _serpApiQuotaLoading,
+                        onQuotaRefresh: _refreshSerpApiQuota,
                       ),
                       SizedBox(height: home ? 12 : 30),
                     ],
@@ -412,7 +472,7 @@ class _SearchScreenState extends State<SearchScreen> {
                       child: Image.asset(
                         'docs/media/meme-drawer.jpg',
                         fit: BoxFit.contain,
-                        semanticLabel: 'Meme Searcher 짤 서랍',
+                        semanticLabel: 'Meme Snatcher 짤 서랍',
                       ),
                     ),
                   ),
@@ -810,12 +870,18 @@ class _Header extends StatelessWidget {
     required this.assetCount,
     required this.onSettings,
     required this.compact,
+    required this.quotaLabel,
+    required this.quotaLoading,
+    required this.onQuotaRefresh,
   });
 
   final String title;
   final int? assetCount;
   final VoidCallback onSettings;
   final bool compact;
+  final String quotaLabel;
+  final bool quotaLoading;
+  final VoidCallback onQuotaRefresh;
 
   @override
   Widget build(BuildContext context) => Row(
@@ -837,6 +903,17 @@ class _Header extends StatelessWidget {
         ),
       if (compact)
         IconButton(
+          tooltip: 'SerpApi 잔여량: $quotaLabel. 새로고침',
+          onPressed: quotaLoading ? null : onQuotaRefresh,
+          icon: quotaLoading
+              ? const SizedBox.square(
+                  dimension: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.manage_search_outlined),
+        ),
+      if (compact)
+        IconButton(
           onPressed: onSettings,
           icon: const Icon(Icons.settings_outlined),
         ),
@@ -849,11 +926,21 @@ class _SideRail extends StatelessWidget {
     required this.mode,
     required this.onChanged,
     required this.onSettings,
+    required this.quota,
+    required this.quotaChecked,
+    required this.quotaLoading,
+    required this.quotaError,
+    required this.onQuotaRefresh,
   });
 
   final _NavMode mode;
   final ValueChanged<_NavMode> onChanged;
   final VoidCallback onSettings;
+  final SerpApiQuota? quota;
+  final bool quotaChecked;
+  final bool quotaLoading;
+  final String? quotaError;
+  final VoidCallback onQuotaRefresh;
 
   @override
   Widget build(BuildContext context) => Container(
@@ -861,60 +948,84 @@ class _SideRail extends StatelessWidget {
     decoration: const BoxDecoration(
       border: Border(right: BorderSide(color: MemeTheme.border)),
     ),
-    child: CustomScrollView(
-      primary: false,
-      slivers: [
-        SliverFillRemaining(
-          hasScrollBody: false,
-          child: Padding(
-            padding: const EdgeInsets.all(14),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                if (mode != _NavMode.home)
-                  const Padding(
-                    padding: EdgeInsets.fromLTRB(8, 12, 8, 30),
-                    child: Row(
-                      children: [
-                        Image(
-                          image: AssetImage('assets/app-icon.png'),
-                          width: 40,
-                          height: 40,
-                          excludeFromSemantics: true,
-                        ),
-                        SizedBox(width: 10),
-                        Expanded(
-                          child: Text(
-                            'Meme\nSearcher',
-                            style: TextStyle(
-                              fontWeight: FontWeight.w800,
-                              height: 1,
-                            ),
+    child: LayoutBuilder(
+      builder: (context, constraints) {
+        final rail = Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (mode != _NavMode.home)
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(8, 12, 8, 30),
+                  child: Row(
+                    children: [
+                      Image(
+                        image: AssetImage('assets/app-icon.png'),
+                        width: 40,
+                        height: 40,
+                        excludeFromSemantics: true,
+                      ),
+                      SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'Meme\nSnatcher',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w800,
+                            height: 1,
                           ),
                         ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
-                _railButton(Icons.home_outlined, '홈', _NavMode.home),
-                _railButton(Icons.grid_view_rounded, '전체', _NavMode.all),
-                _railButton(Icons.star_border, '즐겨찾기', _NavMode.favorites),
-                _railButton(Icons.history, '최근', _NavMode.recent),
-                const Spacer(),
-                TextButton.icon(
-                  onPressed: onSettings,
-                  icon: const Icon(Icons.settings_outlined),
-                  label: const Text('설정'),
                 ),
-              ],
-            ),
+              Expanded(
+                child: ListView(
+                  primary: false,
+                  padding: EdgeInsets.zero,
+                  children: [
+                    _railButton(Icons.home_outlined, '홈', _NavMode.home),
+                    _railButton(Icons.grid_view_rounded, '전체', _NavMode.all),
+                    _railButton(Icons.star_border, '즐겨찾기', _NavMode.favorites),
+                    _railButton(Icons.history, '최근', _NavMode.recent),
+                  ],
+                ),
+              ),
+              _SerpApiQuotaIndicator(
+                quota: quota,
+                checked: quotaChecked,
+                loading: quotaLoading,
+                error: quotaError,
+                onRefresh: onQuotaRefresh,
+              ),
+              const SizedBox(height: 6),
+              TextButton.icon(
+                style: TextButton.styleFrom(
+                  minimumSize: const Size.fromHeight(34),
+                  visualDensity: VisualDensity.compact,
+                ),
+                onPressed: onSettings,
+                icon: const Icon(Icons.settings_outlined, size: 18),
+                label: const Text('설정'),
+              ),
+            ],
           ),
-        ),
-      ],
+        );
+        // A panoramic Home banner can leave less space than the footer itself.
+        // In a very short window the whole rail can scroll until the banner
+        // moves away. At normal heights only the menu above the footer scrolls.
+        final minimumHeight = mode == _NavMode.home ? 245.0 : 330.0;
+        if (constraints.maxHeight >= minimumHeight) return rail;
+        return SingleChildScrollView(
+          primary: false,
+          child: SizedBox(height: minimumHeight, child: rail),
+        );
+      },
     ),
   );
 
   Widget _railButton(IconData icon, String label, _NavMode value) => Padding(
-    padding: const EdgeInsets.only(bottom: 4),
+    padding: const EdgeInsets.only(bottom: 2),
     child: FilledButton.tonalIcon(
       key: ValueKey('nav-${value.name}'),
       style: FilledButton.styleFrom(
@@ -923,12 +1034,172 @@ class _SideRail extends StatelessWidget {
             : Colors.transparent,
         foregroundColor: MemeTheme.text,
         alignment: Alignment.centerLeft,
+        minimumSize: const Size.fromHeight(34),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        visualDensity: VisualDensity.compact,
       ),
       onPressed: () => onChanged(value),
       icon: Icon(icon),
       label: Text(label),
     ),
   );
+}
+
+class _SerpApiQuotaIndicator extends StatelessWidget {
+  const _SerpApiQuotaIndicator({
+    required this.quota,
+    required this.checked,
+    required this.loading,
+    required this.error,
+    required this.onRefresh,
+  });
+
+  final SerpApiQuota? quota;
+  final bool checked;
+  final bool loading;
+  final String? error;
+  final VoidCallback onRefresh;
+
+  @override
+  Widget build(BuildContext context) {
+    final monthlyLimit = quota?.monthlyLimit;
+    final monthlyRemaining = quota?.monthlyRemaining;
+    final totalRemaining = quota?.totalRemaining;
+    final extraCredits = quota?.extraCredits;
+    final exhausted = totalRemaining != null
+        ? totalRemaining == 0
+        : monthlyRemaining == 0 && (extraCredits ?? 0) == 0;
+    final hasMonthlyProgress =
+        monthlyLimit != null && monthlyLimit > 0 && monthlyRemaining != null;
+    final title = switch ((checked, loading, error, quota)) {
+      (false, _, _, _) => 'SerpApi 잔여량',
+      (_, true, _, _) => 'SerpApi 확인 중',
+      (_, _, final value?, _) => value,
+      (_, _, _, null) => 'SerpApi 연결 안 됨',
+      _ => null,
+    };
+    final monthlyText = monthlyRemaining == null
+        ? null
+        : monthlyLimit == null
+        ? '이번 달 $monthlyRemaining회 남음'
+        : '이번 달 $monthlyRemaining / $monthlyLimit회 남음';
+    final detail = switch (quota) {
+      null => checked && error == null ? '키를 연결하면 표시됩니다' : null,
+      _ when monthlyText != null && totalRemaining == monthlyRemaining =>
+        monthlyText,
+      _ when totalRemaining != null => '총 $totalRemaining회 남음',
+      _ when monthlyText != null => monthlyText,
+      _ when extraCredits != null => '추가 크레딧 $extraCredits회',
+      _ => '잔여량 정보 없음',
+    };
+
+    return Semantics(
+      container: true,
+      label: 'SerpApi 검색 잔여량',
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: MemeTheme.surfaceRaised,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: MemeTheme.border),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(10, 6, 4, 6),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.manage_search_outlined, size: 16),
+                  const SizedBox(width: 5),
+                  const Expanded(
+                    child: Text(
+                      'SerpApi',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'SerpApi 잔여량 새로고침',
+                    onPressed: loading ? null : onRefresh,
+                    iconSize: 16,
+                    constraints: const BoxConstraints.tightFor(
+                      width: 32,
+                      height: 32,
+                    ),
+                    padding: EdgeInsets.zero,
+                    visualDensity: VisualDensity.compact,
+                    icon: loading
+                        ? const SizedBox.square(
+                            dimension: 14,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.refresh),
+                  ),
+                ],
+              ),
+              if (title != null)
+                Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: error != null
+                        ? Theme.of(context).colorScheme.error
+                        : MemeTheme.muted,
+                  ),
+                ),
+              if (detail != null) ...[
+                const SizedBox(height: 2),
+                Text(
+                  detail,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 11),
+                ),
+              ],
+              if (hasMonthlyProgress) ...[
+                const SizedBox(height: 6),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(99),
+                  child: LinearProgressIndicator(
+                    value: (monthlyRemaining / monthlyLimit).clamp(0, 1),
+                    minHeight: 5,
+                    color: exhausted
+                        ? Theme.of(context).colorScheme.error
+                        : MemeTheme.accent,
+                    backgroundColor: MemeTheme.border,
+                  ),
+                ),
+              ],
+              if (monthlyText != null &&
+                  totalRemaining != null &&
+                  totalRemaining != monthlyRemaining &&
+                  !exhausted) ...[
+                const SizedBox(height: 3),
+                Text(
+                  monthlyText,
+                  style: const TextStyle(color: MemeTheme.muted, fontSize: 10),
+                ),
+              ],
+              if (extraCredits != null &&
+                  extraCredits > 0 &&
+                  !exhausted &&
+                  (totalRemaining != null || monthlyText != null)) ...[
+                const SizedBox(height: 3),
+                Text(
+                  '추가 크레딧 $extraCredits회',
+                  style: const TextStyle(color: MemeTheme.muted, fontSize: 10),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _MemeCard extends StatelessWidget {

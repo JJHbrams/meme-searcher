@@ -7,8 +7,45 @@ class SerpApiSetupException implements Exception {
   final String message;
 }
 
-/// The account endpoint verifies ownership without consuming a search.
+/// Only quota counters leave the account client. The response also contains
+/// the private API key and the account owner's email.
+class SerpApiQuota {
+  const SerpApiQuota({
+    this.monthlyLimit,
+    this.monthlyRemaining,
+    this.totalRemaining,
+    this.extraCredits,
+  });
+
+  final int? monthlyLimit;
+  final int? monthlyRemaining;
+  final int? totalRemaining;
+  final int? extraCredits;
+
+  factory SerpApiQuota.fromAccount(Map<String, dynamic> account) {
+    int? count(String field) {
+      final value = account[field];
+      return value is int && value >= 0 ? value : null;
+    }
+
+    return SerpApiQuota(
+      monthlyLimit: count('searches_per_month'),
+      monthlyRemaining: count('plan_searches_left'),
+      totalRemaining: count('total_searches_left'),
+      extraCredits: count('extra_credits'),
+    );
+  }
+}
+
 Future<void> verifySerpApiKey(String key, {http.Client? client}) async {
+  await fetchSerpApiQuota(key, client: client);
+}
+
+/// The account endpoint verifies ownership without consuming a search.
+Future<SerpApiQuota> fetchSerpApiQuota(
+  String key, {
+  http.Client? client,
+}) async {
   final transport = client ?? http.Client();
   try {
     final request = http.Request(
@@ -33,10 +70,10 @@ Future<void> verifySerpApiKey(String key, {http.Client? client}) async {
     }
     if (response.statusCode == 200) {
       final account = jsonDecode(response.body);
-      if (account is Map &&
+      if (account is Map<String, dynamic> &&
           account['account_id'] is String &&
           (account['account_id'] as String).isNotEmpty) {
-        return;
+        return SerpApiQuota.fromAccount(account);
       }
     }
     throw const SerpApiSetupException(

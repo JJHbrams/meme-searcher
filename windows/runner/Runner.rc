@@ -79,11 +79,13 @@ BEGIN
         BLOCK "040904e4"
         BEGIN
             VALUE "CompanyName", "" "\0"
-            VALUE "FileDescription", "Meme Searcher" "\0"
+            VALUE "FileDescription", "Meme Snatcher" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
             VALUE "InternalName", "Meme Searcher" "\0"
             VALUE "LegalCopyright", "" "\0"
             VALUE "OriginalFilename", "meme_searcher.exe" "\0"
+            // Both the library and secure storage use ProductName as their
+            // Windows app-data directory. Keep the original storage identity.
             VALUE "ProductName", "Meme Searcher" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END

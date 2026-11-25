@@ -7,6 +7,7 @@
 
 #include <memory>
 
+#include "tray_icon.h"
 #include "win32_window.h"
 
 // A window that does nothing but host a Flutter view.
@@ -24,6 +25,9 @@ class FlutterWindow : public Win32Window {
                          LPARAM const lparam) noexcept override;
 
  private:
+  const bool headless_test_;
+  TrayIcon tray_icon_;
+
   // The project to run.
   flutter::DartProject project_;
 

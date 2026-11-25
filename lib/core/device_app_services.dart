@@ -29,11 +29,13 @@ class DeviceAppServices implements AppServices {
     FlutterSecureStorage? secureStorage,
     LocalLibraryStore? store,
     Future<void> Function(String)? verifyKey,
+    Future<SerpApiQuota> Function(String)? fetchQuota,
     Future<List<MemeAsset>> Function(QueryPlan, String)? googleSearch,
     Future<List<MemeAsset>> Function(QueryPlan)? naverSearch,
   }) : _bundle = bundle ?? rootBundle,
        _secureStorage = secureStorage ?? const FlutterSecureStorage(),
        _verifyKey = verifyKey ?? verifySerpApiKey,
+       _fetchQuota = fetchQuota ?? fetchSerpApiQuota,
        _store = store,
        _googleSearch = googleSearch ?? SerpApiMcpCollector().call,
        _naverSearch = naverSearch ?? NaverImageCollector().call;
@@ -42,6 +44,7 @@ class DeviceAppServices implements AppServices {
   final AssetBundle _bundle;
   final FlutterSecureStorage _secureStorage;
   final Future<void> Function(String) _verifyKey;
+  final Future<SerpApiQuota> Function(String) _fetchQuota;
   LocalLibraryStore? _store;
   final Future<List<MemeAsset>> Function(QueryPlan, String)? _googleSearch;
   final Future<List<MemeAsset>> Function(QueryPlan)? _naverSearch;
@@ -489,6 +492,14 @@ class DeviceAppServices implements AppServices {
   Future<String?> readSerpApiKey() async =>
       await _secureStorage.read(key: _serpKeyName) ??
       Platform.environment['SERPAPI_API_KEY'];
+
+  @override
+  Future<SerpApiQuota?> readSerpApiQuota() async {
+    final key = await readSerpApiKey();
+    if (key == null || key.isEmpty) return null;
+    return _fetchQuota(key);
+  }
+
   @override
   Future<void> writeSerpApiKey(String key) async {
     final trimmed = key.trim();
