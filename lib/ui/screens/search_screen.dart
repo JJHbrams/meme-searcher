@@ -292,7 +292,7 @@ class _SearchScreenState extends State<SearchScreen> {
       !_hasSearched &&
       _navMode != _NavMode.home &&
       _navMode != _NavMode.conch &&
-      [..._assets, ..._cachedAssets].any(_isDeletable);
+      (_assets.any(_isDeletable) || _cachedAssets.any(_isDeletable));
 
   void _exitSelectionMode() {
     _selectionMode = false;
@@ -311,7 +311,7 @@ class _SearchScreenState extends State<SearchScreen> {
           context: context,
           builder: (context) => AlertDialog(
             title: const Text('로컬 짤 삭제'),
-            content: Text('$count개 짤을 이 PC에서 삭제할까요? 이 작업은 되돌릴 수 없어요.'),
+            content: Text('밈서랍에서 짤 $count개를 삭제할까요? 이 작업은 되돌릴 수 없어요.'),
             actions: [
               TextButton(
                 key: const ValueKey('local-delete-cancel'),
@@ -329,52 +329,41 @@ class _SearchScreenState extends State<SearchScreen> {
         false;
   }
 
-  Future<bool> _deleteAssets(Iterable<String> assetIds) async {
-    final ids = assetIds.toSet().toList(growable: false);
-    if (ids.isEmpty || _deleting || !await _confirmDelete(ids.length)) {
+  Future<bool> _deleteAssets(
+    Iterable<String> assetIds, {
+    String? previewId,
+  }) async {
+    final ids = assetIds.toSet();
+    if (ids.isEmpty ||
+        _deleting ||
+        !await _confirmDelete(ids.length) ||
+        !mounted) {
       return false;
     }
     setState(() => _deleting = true);
     try {
       final deleted = await widget.services.deleteLocalAssets(ids);
       if (!mounted) return false;
-      if (deleted > 0) {
-        if (deleted == ids.length) {
-          _removeDeleted(ids);
-        } else if (!_hasSearched) {
-          // A count alone cannot tell which records survived. Refreshing local
-          // collections is quota-free and avoids falsely hiding a survivor.
-          await _loadPage();
-        }
-        _show('$deleted개 짤을 삭제했어요.');
-        return true;
-      } else {
-        _show('삭제할 로컬 짤을 찾지 못했어요.');
+      setState(_exitSelectionMode);
+      if (!_hasSearched && _navMode != _NavMode.conch) {
+        // Re-read the shelf, including recent/favorite aliases affected by
+        // the deletion. Mixed searches keep their existing provider results.
+        await _loadPage();
+      } else if (_hasSearched && deleted == ids.length) {
+        setState(
+          () => _assets = _assets
+              .where((a) => a.id != previewId && !ids.contains(a.id))
+              .toList(),
+        );
       }
+      _show(deleted > 0 ? '$deleted개 짤을 삭제했어요.' : '삭제할 로컬 짤을 찾지 못했어요.');
+      return deleted > 0;
     } catch (_) {
       if (mounted) _show('삭제하지 못했어요. 다시 시도해 주세요.');
     } finally {
       if (mounted) setState(() => _deleting = false);
     }
     return false;
-  }
-
-  void _removeDeleted(Iterable<String> ids) {
-    final removed = ids.toSet();
-    setState(() {
-      _assets = _assets.where((asset) => !removed.contains(asset.id)).toList();
-      _cachedAssets = _cachedAssets
-          .where((asset) => !removed.contains(asset.id))
-          .toList();
-      _recentAssets = _recentAssets
-          .where((asset) => !removed.contains(asset.id))
-          .toList();
-      _favoriteAssets = _favoriteAssets
-          .where((asset) => !removed.contains(asset.id))
-          .toList();
-      _selectedAssetIds.removeAll(removed);
-      if (_selectedAssetIds.isEmpty) _selectionMode = false;
-    });
   }
 
   String _source(MemeAsset asset) {
@@ -419,7 +408,7 @@ class _SearchScreenState extends State<SearchScreen> {
     }
     if (!mounted || page != _searchSerial) return;
     try {
-      await showDialog<void>(
+      final deleted = await showDialog<bool>(
         context: context,
         builder: (context) => _PreviewDialog(
           asset: asset,
@@ -451,10 +440,10 @@ class _SearchScreenState extends State<SearchScreen> {
             }
           },
           canDelete: _isDeletable(asset),
-          onDelete: () => _deleteAssets([asset.id]),
+          onDelete: (id) => _deleteAssets([id], previewId: asset.id),
         ),
       );
-      if (mounted && !_hasSearched) await _loadPage();
+      if (mounted && deleted != true && !_hasSearched) await _loadPage();
     } catch (_) {
       _show('미리보기를 열지 못했어요.');
     }
@@ -1698,7 +1687,7 @@ class _PreviewDialog extends StatefulWidget {
   final ValueChanged<bool> onFavoriteChanged;
   final Future<void> Function() onLibraryChanged;
   final bool canDelete;
-  final Future<bool> Function() onDelete;
+  final Future<bool> Function(String id) onDelete;
 
   @override
   State<_PreviewDialog> createState() => _PreviewDialogState();
@@ -1706,6 +1695,8 @@ class _PreviewDialog extends StatefulWidget {
 
 class _PreviewDialogState extends State<_PreviewDialog> {
   MediaFile? _media;
+  String? _savedAssetId;
+  String? _copiedCachePath;
   String? _error;
   bool _busy = true;
   bool _previewOnly = false;
@@ -1830,6 +1821,7 @@ class _PreviewDialogState extends State<_PreviewDialog> {
         media,
         title: widget.asset.hasGeneratedCacheTitle ? '이미지' : widget.asset.title,
       );
+      _savedAssetId = saved.id;
       if (mounted && saved.filePath != null) {
         _media = MediaFile(
           bytes: media.bytes,
@@ -1845,7 +1837,28 @@ class _PreviewDialogState extends State<_PreviewDialog> {
   }
 
   Future<void> _delete() async {
-    if (await widget.onDelete() && mounted) Navigator.pop(context);
+    var id = _savedAssetId ?? widget.asset.id;
+    final copiedPath = _copiedCachePath;
+    if (_savedAssetId == null && copiedPath != null) {
+      try {
+        final library = await widget.services.library();
+        if (!mounted) return;
+        id =
+            library
+                .where((asset) => asset.filePath == copiedPath)
+                .firstOrNull
+                ?.id ??
+            id;
+      } catch (_) {
+        _notify('내 짤을 불러오지 못했어요. 다시 시도해 주세요.', error: true);
+        return;
+      }
+    }
+    if (await widget.onDelete(id) &&
+        mounted &&
+        ModalRoute.of(context)?.isCurrent == true) {
+      Navigator.pop(context, true);
+    }
   }
 
   @override
@@ -1883,7 +1896,12 @@ class _PreviewDialogState extends State<_PreviewDialog> {
         return result.completed;
       });
       if (!copied) return;
-      if (mounted && clipboardFile != null) _media = clipboardFile;
+      if (mounted && clipboardFile != null) {
+        _media = clipboardFile;
+        if (widget.asset.origin == 'cache') {
+          _copiedCachePath = clipboardFile!.path;
+        }
+      }
       unawaited(onLibraryChanged());
       if (!mounted) return;
       _notify(success);
