@@ -275,7 +275,12 @@ void main() {
     final external = File(p.join(root.path, 'outside.png'));
     await external.writeAsBytes([9, 9]);
     await store.upsert(
-      MemeAsset(id: 'external', title: 'external', filePath: external.path),
+      MemeAsset(
+        id: 'external',
+        title: 'external',
+        origin: 'library',
+        filePath: external.path,
+      ),
     );
 
     expect(await store.deleteLocalAssets(['external']), 1);

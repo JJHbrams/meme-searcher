@@ -924,30 +924,6 @@ class LocalLibraryStore {
     }
   }
 
-  Future<void> _deletePermanentFileIfUnreferenced(MemeAsset asset) async {
-    final path = asset.filePath;
-    final digest = path == null ? null : _name(path)?.$1;
-    if (path == null ||
-        digest == null ||
-        !_inside(path, _media) ||
-        p.dirname(p.normalize(path)) != p.normalize(_media.path)) {
-      return;
-    }
-    // Content-addressed media can be shared by another saved entry.  Never
-    // remove the blob while a surviving library item still owns that digest.
-    final stillReferenced = _assets.values.any(
-      (other) => other.filePath != null && _name(other.filePath!)?.$1 == digest,
-    );
-    if (stillReferenced) return;
-    try {
-      await File(path).delete();
-    } on PathNotFoundException {
-      // Already gone is the desired end state.
-    } on FileSystemException {
-      // The record stays deleted; a later explicit save can recreate it.
-    }
-  }
-
   Future<void> _evict() async {
     var total = _cache.values.fold(0, (sum, entry) => sum + entry.size);
     if (total <= cacheLimitBytes) return;
