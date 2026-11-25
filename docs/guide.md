@@ -62,19 +62,27 @@ flutter build windows --release
 
 ## 릴리스
 
-아래 명령은 `dist`에 배포 ZIP과 `SHA256SUMS.txt`를 생성합니다.
+배포 단위는 EXE 하나가 아니라 `meme_searcher.exe`, DLL, `data`와 라이선스를 함께 담은 `meme-searcher-v…-windows-x64.zip`입니다. GitHub가 자동으로 제공하는 **Source code (zip)**은 실행용 파일이 아닙니다.
+
+릴리스용 빌드는 깨끗한 최종 커밋에서 다음 스크립트로 만드세요. 이 과정은 의존성 준비, 분석, 전체 테스트, Windows Release 빌드와 빌드 출처 기록을 차례로 확인합니다.
 
 ```powershell
-powershell -NoProfile -File .\tools\package-windows-release.ps1
+$tag = 'vX.Y.Z.N' # VERSION의 세 자리 + 이번 커밋의 네 자리 빌드 번호로 바꾸세요.
+powershell -NoProfile -File .\tools\build-windows-release.ps1 -ExpectedTag $tag
+powershell -NoProfile -File .\tools\package-windows-release.ps1 -ExpectedTag $tag
 ```
 
-GitHub에 게시하려면 최종 커밋에서 빌드한 뒤 주석 태그에 릴리스 노트를 입력하고 배포하세요.
+`dist\SHA256SUMS.txt`의 해시, ZIP을 새 폴더에 풀었을 때의 실행, 그리고 ZIP 안의 `RELEASE-BUILD.json`을 확인한 뒤에만 게시합니다. 실제 태그의 네 번째 숫자는 `git rev-list --count HEAD`이며 65534 이하여야 합니다.
+
+GitHub 게시은 태그와 PE 버전이 같은지 다시 확인하고, 초안 릴리스에 ZIP·체크섬을 올린 뒤 공개 및 익명 다운로드 해시 검증까지 마쳐야 합니다. `gh`를 쓸 수 있다면:
 
 ```powershell
-$tag = 'v' + (Get-Item .\meme_searcher.exe).VersionInfo.FileVersion
-git tag -a $tag
+$tag = 'v' + (Get-Item .\build\windows\x64\runner\Release\meme_searcher.exe).VersionInfo.FileVersion
+git tag -a $tag -m "Meme Snatcher $tag"
 git push origin $tag
-powershell -NoProfile -File .\tools\package-windows-release.ps1 -Publish
+powershell -NoProfile -File .\tools\package-windows-release.ps1 -ExpectedTag $tag -Publish
 ```
+
+`gh`가 없는 환경에서는 인증된 GitHub REST 도구로 같은 순서(초안 생성 → 두 asset 업로드·digest 대조 → 공개 → 로그인하지 않은 다운로드 SHA-256 대조)를 수행합니다. 어떤 경로든 기존 태그나 릴리스를 덮어쓰지 않습니다. 전체 절차와 완료 기준은 [Windows 릴리스 규칙](release.md)을 참고하세요.
 
 자체 소스에는 별도 라이선스가 지정되어 있지 않습니다. 포함된 소프트웨어와 밈의 권리자 및 원본 출처는 [서드파티 고지](../THIRD_PARTY_NOTICES.md)에서 확인할 수 있습니다.

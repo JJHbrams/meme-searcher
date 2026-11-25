@@ -13,7 +13,7 @@ publish_to: 'none'
 # Read more about iOS versioning at
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # Windows Explorer reads VERSION and the CI build number or local Git count.
-version: 1.7.0
+version: 1.7.1
 
 environment:
   sdk: ^3.14.0

@@ -4,7 +4,7 @@
 
 파일 이름 대신 기억나는 대사를 넣어 보세요. **내 짤과 웹에서 찾은 이미지를 한 화면**에 모아 검색어와 잘 맞는 순서로 보여주는 Windows용 밈 검색기예요.
 
-**[Windows용 다운로드](https://github.com/JJHbrams/meme-searcher/releases/latest)** · Windows 10/11 x64 · ZIP 전체 압축 해제 → `meme_searcher.exe` 실행
+**[Windows용 다운로드](https://github.com/JJHbrams/meme-searcher/releases/latest)** · Releases의 **Assets**에서 `meme-searcher-v…-windows-x64.zip`을 받으세요. GitHub가 자동으로 붙이는 Source code ZIP은 실행 파일이 아닙니다. Windows 10/11 x64 · ZIP 전체 압축 해제 → `meme_searcher.exe` 실행
 
 ## “좋다 지금 간다 기다려라” …헬다이버 버전이었는데?
 
