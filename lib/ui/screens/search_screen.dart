@@ -324,77 +324,112 @@ class _SearchScreenState extends State<SearchScreen> {
                 onSettings: _openSettings,
               ),
             Expanded(
-              child: CustomScrollView(
-                controller: _scroll,
-                slivers: [
-                  SliverPadding(
-                    padding: EdgeInsets.fromLTRB(
-                      wide ? 46 : 20,
-                      home ? 24 : 34,
-                      wide ? 46 : 20,
-                      home ? 32 : 14,
-                    ),
-                    sliver: SliverList.list(
-                      children: [
-                        _Header(
-                          title: _hasSearched ? '검색 결과' : _navMode.label,
-                          assetCount: home || _loading ? null : _assets.length,
-                          onSettings: _openSettings,
-                          compact: !wide,
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final inset = wide ? 46.0 : 20.0;
+                  // A 3:1 banner takes up at most 40% of the home viewport.
+                  final homeWidth = (constraints.maxHeight * 1.2).clamp(
+                    0.0,
+                    1080.0,
+                  );
+                  final side = home
+                      ? ((constraints.maxWidth - homeWidth) / 2).clamp(
+                          inset,
+                          double.infinity,
+                        )
+                      : inset;
+                  return CustomScrollView(
+                    controller: _scroll,
+                    slivers: [
+                      SliverPadding(
+                        padding: EdgeInsets.fromLTRB(
+                          side,
+                          home ? 24 : 34,
+                          side,
+                          home ? 32 : 14,
                         ),
-                        SizedBox(height: home ? 16 : 30),
-                        _searchBox(),
-                        const SizedBox(height: 12),
-                        if (home) ...[
-                          Row(
-                            children: [
-                              Expanded(child: _scopeChoice()),
-                              const SizedBox(width: 8),
-                              IconButton(
-                                tooltip: _showSearchOptions
-                                    ? '검색 옵션 접기'
-                                    : '검색 옵션 열기',
-                                isSelected: _showSearchOptions,
-                                onPressed: () => setState(
-                                  () =>
-                                      _showSearchOptions = !_showSearchOptions,
+                        sliver: SliverList.list(
+                          children: [
+                            if (!home || !wide)
+                              _Header(
+                                title: _hasSearched ? '검색 결과' : _navMode.label,
+                                assetCount: home || _loading
+                                    ? null
+                                    : _assets.length,
+                                onSettings: _openSettings,
+                                compact: !wide,
+                              ),
+                            if (home) ...[
+                              if (!wide) const SizedBox(height: 12),
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(12),
+                                child: AspectRatio(
+                                  aspectRatio: 3,
+                                  child: Image.asset(
+                                    'docs/media/meme-drawer.jpg',
+                                    fit: BoxFit.contain,
+                                    semanticLabel: 'Meme Searcher 짤 서랍',
+                                  ),
                                 ),
-                                icon: const Icon(Icons.tune),
                               ),
                             ],
-                          ),
-                          if (_showSearchOptions) ...[
-                            _similarChoice(),
-                            _formatChoice(),
-                          ],
-                          const SizedBox(height: 20),
-                          if (!_loading ||
-                              _recentAssets.isNotEmpty ||
-                              _recentQueries.isNotEmpty ||
-                              _favoriteAssets.isNotEmpty)
-                            ..._homeSections()
-                          else
-                            const Center(child: CircularProgressIndicator()),
-                        ] else ...[
-                          _scopeChoice(),
-                          if (_hasSearched) _similarChoice(),
-                          const SizedBox(height: 12),
-                          _formatChoice(),
-                          if (_hasSearched) ...[
+                            SizedBox(height: home ? 16 : 30),
+                            _searchBox(),
                             const SizedBox(height: 12),
-                            _tagFilter(),
+                            if (home) ...[
+                              Row(
+                                children: [
+                                  Expanded(child: _scopeChoice()),
+                                  const SizedBox(width: 8),
+                                  IconButton(
+                                    tooltip: _showSearchOptions
+                                        ? '검색 옵션 접기'
+                                        : '검색 옵션 열기',
+                                    isSelected: _showSearchOptions,
+                                    onPressed: () => setState(
+                                      () => _showSearchOptions =
+                                          !_showSearchOptions,
+                                    ),
+                                    icon: const Icon(Icons.tune),
+                                  ),
+                                ],
+                              ),
+                              if (_showSearchOptions) ...[
+                                _similarChoice(),
+                                _formatChoice(),
+                              ],
+                              const SizedBox(height: 20),
+                              if (!_loading ||
+                                  _recentAssets.isNotEmpty ||
+                                  _recentQueries.isNotEmpty ||
+                                  _favoriteAssets.isNotEmpty)
+                                ..._homeSections()
+                              else
+                                const Center(
+                                  child: CircularProgressIndicator(),
+                                ),
+                            ] else ...[
+                              _scopeChoice(),
+                              if (_hasSearched) _similarChoice(),
+                              const SizedBox(height: 12),
+                              _formatChoice(),
+                              if (_hasSearched) ...[
+                                const SizedBox(height: 12),
+                                _tagFilter(),
+                              ],
+                            ],
+                            if (_error != null) ...[
+                              const SizedBox(height: 10),
+                              _InlineMessage(message: _error!, error: true),
+                            ],
+                            const SizedBox(height: 14),
                           ],
-                        ],
-                        if (_error != null) ...[
-                          const SizedBox(height: 10),
-                          _InlineMessage(message: _error!, error: true),
-                        ],
-                        const SizedBox(height: 14),
-                      ],
-                    ),
-                  ),
-                  if (!home) _resultsGrid(wide),
-                ],
+                        ),
+                      ),
+                      if (!home) _resultsGrid(wide),
+                    ],
+                  );
+                },
               ),
             ),
           ],

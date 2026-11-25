@@ -180,10 +180,24 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(services.searches, 0);
-    await tester.tap(find.text('approved!'));
+    final page = find.byType(Scrollable).first;
+    final example = find.text('approved!');
+    await tester.scrollUntilVisible(
+      example.hitTestable(),
+      200,
+      scrollable: page,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(example);
     await tester.pump();
     expect(services.searches, 0);
 
+    await tester.scrollUntilVisible(
+      find.text('검색').hitTestable(),
+      -200,
+      scrollable: page,
+    );
+    await tester.pumpAndSettle();
     await tester.tap(find.text('검색'));
     await tester.pumpAndSettle();
     expect(services.searches, 1);
@@ -196,6 +210,8 @@ void main() {
     (tester) async {
       final services = _FakeServices();
       await openApp(tester, services);
+      final banner = find.bySemanticsLabel('Meme Searcher 짤 서랍');
+      expect(banner, findsOneWidget);
       expect(find.text('최근 사용'), findsOneWidget);
       expect(find.text('최근 검색'), findsOneWidget);
       expect(
@@ -208,6 +224,7 @@ void main() {
       expect(services.searches, 0);
 
       await searchFromHome(tester, 'default scope');
+      expect(banner, findsNothing);
       expect(services.requests.single.scope, SearchScope.all);
       expect(services.recordedQueries, ['default scope']);
     },
