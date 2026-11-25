@@ -7,6 +7,13 @@
 
 #include <iostream>
 
+bool IsHeadlessTestMode() {
+  wchar_t value[8] = {};
+  const DWORD length = GetEnvironmentVariableW(L"MEME_SEARCHER_HEADLESS_TEST",
+                                                value, 8);
+  return length == 1 && value[0] == L'1';
+}
+
 void CreateAndAttachConsole() {
   if (::AllocConsole()) {
     FILE *unused;
