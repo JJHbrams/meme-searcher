@@ -5,7 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../core/app_services.dart';
 import '../../core/models.dart';
 import '../../core/serpapi_account.dart';
-import '../../platform/media_actions.dart';
+import '../widgets/app_version_footer.dart';
 
 class SerpApiSettingsDialog extends StatefulWidget {
   const SerpApiSettingsDialog({
@@ -25,9 +25,6 @@ class SerpApiSettingsDialog extends StatefulWidget {
 
 class _SerpApiSettingsDialogState extends State<SerpApiSettingsDialog> {
   final _key = TextEditingController();
-  late final _appVersion = const MethodChannel(
-    MediaActions.channelName,
-  ).invokeMethod<String>('getAppVersion');
   bool _busy = false;
   String? _error;
 
@@ -175,23 +172,7 @@ class _SerpApiSettingsDialogState extends State<SerpApiSettingsDialog> {
                   style: TextStyle(color: Theme.of(context).colorScheme.error),
                 ),
               ),
-            FutureBuilder<String?>(
-              future: _appVersion,
-              builder: (context, snapshot) {
-                final version = snapshot.data;
-                if (version == null) return const SizedBox.shrink();
-                final theme = Theme.of(context);
-                return Padding(
-                  padding: const EdgeInsets.only(top: 16),
-                  child: Text(
-                    'Meme Snatcher · v$version',
-                    style: theme.textTheme.labelSmall?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                );
-              },
-            ),
+            AppVersionFooter(showUpdateCheck: !widget.firstRun),
           ],
         ),
       ),
