@@ -212,15 +212,16 @@ void main() {
       await openApp(tester, services);
       final banner = find.bySemanticsLabel('Meme Searcher 짤 서랍');
       expect(banner, findsOneWidget);
+      final bounds = tester.getRect(banner);
+      expect(bounds.topLeft, Offset.zero);
+      expect(bounds.width, tester.getSize(find.byType(Scaffold)).width);
+      expect(
+        tester.getTopLeft(find.byKey(const ValueKey('nav-home'))).dy,
+        greaterThanOrEqualTo(bounds.bottom),
+      );
       expect(find.text('최근 사용'), findsOneWidget);
       expect(find.text('최근 검색'), findsOneWidget);
-      expect(
-        find.descendant(
-          of: find.byType(CustomScrollView),
-          matching: find.text('즐겨찾기'),
-        ),
-        findsOneWidget,
-      );
+      expect(find.text('검색').hitTestable(), findsOneWidget);
       expect(services.searches, 0);
 
       await searchFromHome(tester, 'default scope');
@@ -289,6 +290,12 @@ void main() {
       ..queries = ['repeat query'];
     await openApp(tester, services);
     expect(find.textContaining('Recent '), findsNWidgets(5));
+    final viewport = tester.getRect(find.byType(Scaffold));
+    await tester.dragFrom(
+      viewport.bottomRight - const Offset(100, 70),
+      Offset(0, -viewport.height / 2),
+    );
+    await tester.pumpAndSettle();
     expect(find.textContaining('Favorite '), findsNWidgets(5));
     await tester.tap(find.text('repeat query'));
     await tester.pumpAndSettle();
