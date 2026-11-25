@@ -17,6 +17,7 @@
 
 #include "flutter/generated_plugin_registrant.h"
 #include "meme_version.rc2"
+#include "utils.h"
 
 namespace {
 
@@ -294,13 +295,6 @@ bool IsGifMimeType(const std::string& mime, const std::wstring& path) {
   if (_stricmp(mime.c_str(), "image/gif") == 0) return true;
   const auto extension = std::filesystem::path(path).extension().wstring();
   return _wcsicmp(extension.c_str(), L".gif") == 0;
-}
-
-bool IsHeadlessTestMode() {
-  wchar_t value[8] = {};
-  const DWORD length = GetEnvironmentVariableW(L"MEME_SEARCHER_HEADLESS_TEST",
-                                                value, 8);
-  return length == 1 && value[0] == L'1';
 }
 
 std::string Utf8FromUtf16(const std::wstring& value) {

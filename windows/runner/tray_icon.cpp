@@ -7,6 +7,7 @@
 
 namespace {
 constexpr UINT kTrayMessage = WM_APP + 0x41;
+constexpr UINT kActivateWindow = WM_APP + 0x42;
 constexpr UINT kIconId = 1;
 constexpr UINT kOpen = 1;
 constexpr UINT kExit = 2;
@@ -36,6 +37,21 @@ UINT ChooseCommand(HWND window, POINT anchor) {
 }
 }  // namespace
 
+bool TrayIcon::RequestRestore(HWND window, bool legacy) {
+  DWORD process_id = 0;
+  if (!GetWindowThreadProcessId(window, &process_id)) return false;
+  AllowSetForegroundWindow(process_id);
+  if (!legacy) return PostMessageW(window, kActivateWindow, 0, 0) != FALSE;
+
+  // Releases before 1.5.1 already handle a tray icon selection when hidden.
+  if (!IsWindowVisible(window)) {
+    return PostMessageW(window, kTrayMessage, 0, MAKELPARAM(NIN_SELECT, kIconId)) != FALSE;
+  }
+  if (IsIconic(window)) ShowWindowAsync(window, SW_RESTORE);
+  SetForegroundWindow(window);
+  return true;
+}
+
 bool TrayIcon::Add(HWND window) {
   if (active_) return true;
   auto data = IconData(window);
@@ -64,12 +80,17 @@ void TrayIcon::Remove(HWND window) {
 
 void TrayIcon::Restore(HWND window) {
   ShowWindow(window, IsIconic(window) ? SW_RESTORE : SW_SHOW);
-  SetForegroundWindow(window);
+  HWND popup = GetLastActivePopup(window);
+  SetForegroundWindow(IsWindowVisible(popup) ? popup : window);
   Remove(window);
 }
 
 bool TrayIcon::HandleMessage(HWND window, UINT message, WPARAM wparam,
                              LPARAM lparam) {
+  if (message == kActivateWindow) {
+    Restore(window);
+    return true;
+  }
   if (message == WM_CLOSE) {
     if (Add(window)) {
       ShowWindow(window, SW_HIDE);

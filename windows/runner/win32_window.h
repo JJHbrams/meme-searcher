@@ -12,6 +12,8 @@
 // rendering and input handling
 class Win32Window {
  public:
+  static constexpr wchar_t kMainWindowClass[] = L"JJHbrams.MemeSnatcher.Window";
+
   struct Point {
     unsigned int x;
     unsigned int y;

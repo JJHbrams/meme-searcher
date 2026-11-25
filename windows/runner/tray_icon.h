@@ -5,6 +5,7 @@
 
 class TrayIcon {
  public:
+  static bool RequestRestore(HWND window, bool legacy);
   bool HandleMessage(HWND window, UINT message, WPARAM wparam, LPARAM lparam);
   bool active() const { return active_; }
 
