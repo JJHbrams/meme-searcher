@@ -80,6 +80,32 @@ void main() {
     expect(withSimilar.assets, isNotEmpty);
   });
 
+  test('deleted bundled samples stay removed after initialization', () async {
+    final sample = (await services.library()).first;
+    final media = await services.loadMedia(sample);
+    expect(await services.deleteLocalAssets([sample.id]), 1);
+    expect(
+      (await services.library()).map((asset) => asset.id),
+      isNot(contains(sample.id)),
+    );
+
+    final reopened = DeviceAppServices(
+      store: await LocalLibraryStore.open(directory: temporaryRoot),
+    );
+    await reopened.initialize();
+    expect(
+      (await reopened.library()).map((asset) => asset.id),
+      isNot(contains(sample.id)),
+    );
+
+    // Saving bytes again is an explicit user action and remains allowed.
+    final saved = await reopened.saveToLibrary(media);
+    expect(
+      (await reopened.library()).map((asset) => asset.id),
+      contains(saved.id),
+    );
+  });
+
   test('account quota follows the currently configured key', () async {
     const sample = SerpApiQuota(monthlyRemaining: 14, monthlyLimit: 20);
     final requests = <String>[];

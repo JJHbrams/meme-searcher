@@ -38,6 +38,12 @@ abstract interface class AppServices {
 
   Future<void> markRecent(String assetId, {MemeAsset? asset});
 
+  /// Removes only assets currently owned by the local library/cache.
+  ///
+  /// Callers supply stable asset IDs, never file paths.  The return value is
+  /// the number of live entries that were removed (so retries are idempotent).
+  Future<int> deleteLocalAssets(Iterable<String> assetIds);
+
   Future<List<String>> recentSearches();
 
   Future<void> recordSearch(String query);
