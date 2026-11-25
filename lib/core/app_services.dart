@@ -26,9 +26,13 @@ abstract interface class AppServices {
     List<String> aliases = const [],
   });
 
-  Future<MemeAsset> toggleFavorite(String assetId);
+  Future<MemeAsset> toggleFavorite(String assetId, {MemeAsset? asset});
 
-  Future<void> markRecent(String assetId);
+  Future<void> markRecent(String assetId, {MemeAsset? asset});
+
+  Future<List<String>> recentSearches();
+
+  Future<void> recordSearch(String query);
 
   Future<SettingsState> settings();
 

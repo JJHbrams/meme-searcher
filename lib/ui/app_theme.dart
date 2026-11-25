@@ -42,6 +42,11 @@ abstract final class MemeTheme {
       snackBarTheme: const SnackBarThemeData(
         behavior: SnackBarBehavior.floating,
         backgroundColor: surfaceRaised,
+        contentTextStyle: TextStyle(
+          color: text,
+          fontSize: 14,
+          fontWeight: FontWeight.w600,
+        ),
       ),
     );
   }

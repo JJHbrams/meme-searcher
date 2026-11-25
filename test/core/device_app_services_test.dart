@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:crypto/crypto.dart';
@@ -117,6 +118,142 @@ void main() {
       );
     },
   );
+
+  test('keeps web Home state durable without adding it to local library', () async {
+    const web = MemeAsset(
+      id: 'web-favorite',
+      title: 'Remote favorite',
+      origin: 'web',
+      originalUrl: 'https://example.test/original.jpg',
+      previewUrl: 'https://example.test/preview.jpg',
+    );
+    final home = DeviceAppServices(
+      store: store,
+      naverSearch: (_) async => [web],
+    );
+    await home.initialize();
+    await home.markRecent(web.id, asset: web);
+    final favorited = await home.toggleFavorite(web.id, asset: web);
+    expect(favorited.favorite, isTrue);
+    expect(
+      (await home.library()).map((asset) => asset.id),
+      isNot(contains(web.id)),
+    );
+    expect(
+      (await home.library(recentOnly: true)).single.previewUrl,
+      web.previewUrl,
+    );
+    expect(
+      (await home.library(favoritesOnly: true)).map((asset) => asset.id),
+      contains(web.id),
+    );
+
+    final repeat = await home.search(
+      const SearchRequest(query: 'remote', scope: SearchScope.web),
+    );
+    expect(repeat.assets.single.favorite, isTrue);
+
+    final reopened = DeviceAppServices(
+      store: await LocalLibraryStore.open(directory: temporaryRoot),
+    );
+    expect(
+      (await reopened.library(recentOnly: true)).single.originalUrl,
+      web.originalUrl,
+    );
+    expect(
+      (await reopened.library(favoritesOnly: true)).single.favorite,
+      isTrue,
+    );
+    await reopened.toggleFavorite(web.id);
+    // A stale card snapshot must not re-bookmark an item the user just removed.
+    await reopened.markRecent(web.id, asset: favorited);
+    expect((await reopened.library(recentOnly: true)).single.favorite, isFalse);
+    expect(await reopened.library(favoritesOnly: true), isEmpty);
+  });
+
+  test('persists ordered, deduplicated and limited search history', () async {
+    for (final query in [
+      'one',
+      'two',
+      ' ONE ',
+      'three',
+      'four',
+      'five',
+      'six',
+    ]) {
+      await services.recordSearch(query);
+    }
+    expect(
+      await services.recentSearches(),
+      orderedEquals(['six', 'five', 'four', 'three', 'ONE']),
+    );
+    final reopened = DeviceAppServices(
+      store: await LocalLibraryStore.open(directory: temporaryRoot),
+    );
+    expect(
+      await reopened.recentSearches(),
+      orderedEquals(['six', 'five', 'four', 'three', 'ONE']),
+    );
+  });
+
+  test('new web search snapshots retain a cached recent original', () async {
+    const initial = MemeAsset(
+      id: 'cached-web',
+      title: 'Cached web',
+      origin: 'web',
+      originalUrl: 'https://example.test/original.jpg',
+      previewUrl: 'https://example.test/preview.jpg',
+    );
+    const inspectedOriginal = MemeAsset(
+      id: 'cached-web',
+      title: 'Cached web',
+      origin: 'web',
+      originalUrl: 'https://example.test/original.jpg',
+      previewUrl: 'https://example.test/preview.jpg',
+      filePath: '/cached/original.jpg',
+      format: 'JPEG',
+      verified: true,
+      inspectionStatus: 'static',
+    );
+    await store.recent(initial.id, asset: initial);
+    await store.refreshRecentAsset(inspectedOriginal);
+    // A repeated search result contains links but not inspection/cache fields.
+    await store.recent(initial.id, asset: initial);
+
+    final cached = store.recentAssets().single;
+    expect(cached.filePath, inspectedOriginal.filePath);
+    expect(cached.format, 'JPEG');
+    expect(cached.previewUrl, initial.previewUrl);
+  });
+
+  test('opens legacy local indexes without new Home fields', () async {
+    final legacyRoot = await Directory.systemTemp.createTemp('meme-legacy-');
+    addTearDown(() => legacyRoot.delete(recursive: true));
+    final index = File(
+      '${legacyRoot.path}${Platform.pathSeparator}meme_drawer${Platform.pathSeparator}library.json',
+    );
+    await index.parent.create(recursive: true);
+    await index.writeAsString(
+      jsonEncode({
+        'version': 1,
+        'assets': [
+          const MemeAsset(
+            id: 'legacy',
+            title: 'Legacy',
+            origin: 'library',
+          ).toJson(),
+        ],
+        'recent': ['legacy'],
+      }),
+    );
+    final legacy = DeviceAppServices(
+      store: await LocalLibraryStore.open(directory: legacyRoot),
+    );
+    expect((await legacy.library(recentOnly: true)).map((asset) => asset.id), [
+      'legacy',
+    ]);
+    expect(await legacy.recentSearches(), isEmpty);
+  });
 
   final shouldRunLive =
       Platform.environment['MEME_SEARCHER_LIVE_TEST'] == '1' &&
