@@ -97,6 +97,11 @@ if ($Publish) {
     Assert-LastExitCode "Verifying tag $tag"
     if ($tagCommit -ne $head) { throw "Tag $tag does not resolve to HEAD." }
 
-    & gh release create $tag $archivePath $checksumPath --repo JJHbrams/meme-searcher --verify-tag --latest --notes-from-tag --title "Meme Searcher $tag (Windows x64)"
-    Assert-LastExitCode 'Publishing GitHub release'
+    Push-Location -LiteralPath $repoRoot
+    try {
+        & gh release create $tag $archivePath $checksumPath --verify-tag --latest --notes-from-tag --title "Meme Searcher $tag (Windows x64)"
+        Assert-LastExitCode 'Publishing GitHub release'
+    } finally {
+        Pop-Location
+    }
 }
