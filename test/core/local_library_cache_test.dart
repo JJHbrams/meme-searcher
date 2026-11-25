@@ -179,6 +179,50 @@ void main() {
       expect(reopened.cachedAssets().single.isPreviewOnly, isTrue);
     },
   );
+
+  test(
+    'cache browse order stays at original insertion order after LRU touches',
+    () async {
+      final store = await LocalLibraryStore.open(directory: root);
+      final first = await store.cacheMedia(
+        _media([1], 'first'),
+        previewOnly: false,
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 2));
+      await store.cacheMedia(
+        _media([2], 'second'),
+        previewOnly: false,
+      );
+      await store.touchCached(first.path);
+
+      expect(store.cachedAssets().map((asset) => asset.title), [
+        'second',
+        'first',
+      ]);
+      final reopened = await LocalLibraryStore.open(directory: root);
+      expect(reopened.cachedAssets().map((asset) => asset.title), [
+        'second',
+        'first',
+      ]);
+    },
+  );
+
+  test('legacy hash cache has no generated display label', () {
+    final asset = MemeAsset(
+      id: 'cache:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      origin: 'cache',
+      title: '이전 GIF 짤 · aaaaaaaa',
+    );
+    expect(asset.displayTitle, isNull);
+    expect(
+      MemeAsset(
+        id: 'cache:hash',
+        origin: 'cache',
+        title: 'aaaaaaaa.png',
+      ).displayTitle,
+      isNull,
+    );
+  });
 }
 
 MediaFile _media(List<int> values, String title) {

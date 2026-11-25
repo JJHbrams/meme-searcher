@@ -3,13 +3,15 @@
 #include <windows.h>
 
 #include "flutter_window.h"
+#include "graphics_compatibility.h"
 #include "utils.h"
 
 namespace {
 constexpr wchar_t kAppTitle[] = L"Meme Snatcher";
 
-bool StartOrActivate(FlutterWindow& window) {
-  const auto create = [&window]() {
+bool StartOrActivate(FlutterWindow& window, bool software_adapter) {
+  const auto create = [&window, software_adapter]() {
+    ScopedWarpProfile profile(software_adapter);
     return window.Create(kAppTitle, {10, 10}, {1280, 720});
   };
   if (IsHeadlessTestMode()) return create();
@@ -47,6 +49,10 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   const HRESULT ole_status = ::OleInitialize(nullptr);
 
   flutter::DartProject project(L"data");
+  const bool software_adapter = HasAffectedDisplayDriver();
+  if (software_adapter) {
+    project.set_impeller_switch(flutter::ImpellerSwitch::Disabled);
+  }
 
   std::vector<std::string> command_line_arguments =
       GetCommandLineArguments();
@@ -54,7 +60,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   project.set_dart_entrypoint_arguments(std::move(command_line_arguments));
 
   FlutterWindow window(project);
-  const bool started = StartOrActivate(window);
+  const bool started = StartOrActivate(window, software_adapter);
   if (started && window.GetHandle()) {
     window.SetQuitOnClose(true);
 

@@ -95,8 +95,8 @@ bool TrayIcon::HandleMessage(HWND window, UINT message, WPARAM wparam,
     if (Add(window)) {
       ShowWindow(window, SW_HIDE);
     } else {
-      // Without a notification area, a hidden window would be unreachable.
-      DestroyWindow(window);
+      // Keep the window accessible from the taskbar until Explorer is ready.
+      ShowWindow(window, SW_MINIMIZE);
     }
     return true;
   }

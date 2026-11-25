@@ -307,7 +307,15 @@ class LocalLibraryStore {
 
   List<MemeAsset> cachedAssets() {
     final entries = _cache.values.toList()
-      ..sort((a, b) => b.access.compareTo(a.access));
+      ..sort((a, b) {
+        final byAdded =
+            (b.asset.addedAt ?? DateTime.fromMillisecondsSinceEpoch(0))
+                .compareTo(
+                  a.asset.addedAt ?? DateTime.fromMillisecondsSinceEpoch(0),
+                );
+        if (byAdded != 0) return byAdded;
+        return a.asset.id.compareTo(b.asset.id);
+      });
     return entries
         .map((entry) => applyStoredState(entry.asset))
         .toList(growable: false);
@@ -459,6 +467,7 @@ class LocalLibraryStore {
           aliases: {...?previous?.aliases, ...incoming.aliases}.toList(),
           bytes: file.bytes.length,
           addedAt: previous?.addedAt ?? now,
+          submittedQuery: incoming.submittedQuery ?? previous?.submittedQuery,
         );
         _cache[digest] = _CacheRecord(entry, file.bytes.length, now);
         await _evict();
@@ -466,13 +475,21 @@ class LocalLibraryStore {
         return _atPath(file, blob.path, previewOnly: previewOnly);
       });
 
-  Future<void> touchCached(String path) async {
+  Future<void> touchCached(String path, {String? submittedQuery}) async {
     final digest = _name(path)?.$1;
     if (digest == null || !_cache.containsKey(digest)) return;
     await _locked(() async {
       final record = _cache[digest];
       if (record == null || !p.equals(record.asset.filePath!, path)) return;
       record.access = DateTime.now();
+      final query = submittedQuery?.trim();
+      if (query != null && query.isNotEmpty) {
+        _cache[digest] = _CacheRecord(
+          record.asset.copyWith(submittedQuery: query),
+          record.size,
+          record.access,
+        );
+      }
       await _write();
     });
   }
@@ -584,6 +601,9 @@ class LocalLibraryStore {
         aliases.any(_favoriteWebAssets.containsKey);
     final saved = (existing ?? file.asset).copyWith(
       id: id,
+      title:
+          existing?.title ??
+          (file.asset.hasGeneratedCacheTitle ? '이미지' : file.asset.title),
       origin: existing?.origin ?? 'library',
       filePath: path,
       favorite: favorite,

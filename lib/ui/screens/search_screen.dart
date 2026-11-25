@@ -259,7 +259,8 @@ class _SearchScreenState extends State<SearchScreen> {
         if (!mounted || serial != _searchSerial) return;
         setState(() {
           _assets = items;
-          // The service owns cache recency (LRU) ordering.
+          // Cache cards retain their original insertion order; the service
+          // separately tracks access time for eviction.
           _cachedAssets = cached;
         });
       }
@@ -820,14 +821,15 @@ class _SearchScreenState extends State<SearchScreen> {
                                 fit: BoxFit.cover,
                               ),
                             ),
-                            Padding(
-                              padding: const EdgeInsets.all(8),
-                              child: Text(
-                                asset.title,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
+                            if (asset.displayTitle case final label?)
+                              Padding(
+                                padding: const EdgeInsets.all(8),
+                                child: Text(
+                                  label,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
                               ),
-                            ),
                           ],
                         ),
                       ),
@@ -885,7 +887,7 @@ class _SearchScreenState extends State<SearchScreen> {
                       ),
                       SizedBox(height: 4),
                       Text(
-                        '256 MiB까지 보관해요. 복사한 짤은 아래 내 짤에 남아요.',
+                        '256 MiB까지 보관해요. 새로 저장한 순서로 보여주고, 오래 안 연 짤부터 정리해요.',
                         style: TextStyle(color: MemeTheme.muted),
                       ),
                     ],
@@ -1406,13 +1408,15 @@ class _MemeCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  asset.title,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontWeight: FontWeight.w700),
-                ),
-                const SizedBox(height: 3),
+                if (asset.displayTitle case final label?) ...[
+                  Text(
+                    label,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                  const SizedBox(height: 3),
+                ],
                 Text(
                   asset.variant ?? asset.familyName ?? '웹 검색 후보',
                   maxLines: 1,
@@ -1625,7 +1629,7 @@ class _PreviewDialogState extends State<_PreviewDialog> {
     try {
       final saved = await widget.services.saveToLibrary(
         media,
-        title: widget.asset.title,
+        title: widget.asset.hasGeneratedCacheTitle ? '이미지' : widget.asset.title,
       );
       if (mounted && saved.filePath != null) {
         _media = MediaFile(
@@ -1779,12 +1783,14 @@ class _PreviewDialogState extends State<_PreviewDialog> {
                           fontWeight: FontWeight.w800,
                         ),
                       ),
-                      const SizedBox(height: 5),
-                      Text(
-                        widget.asset.title,
-                        style: Theme.of(context).textTheme.titleLarge,
-                      ),
-                      const SizedBox(height: 5),
+                      if (widget.asset.displayTitle case final label?) ...[
+                        const SizedBox(height: 5),
+                        Text(
+                          label,
+                          style: Theme.of(context).textTheme.titleLarge,
+                        ),
+                        const SizedBox(height: 5),
+                      ],
                       Text(
                         _SearchScreenState._mediaInfo(displayed),
                         style: const TextStyle(color: MemeTheme.muted),
