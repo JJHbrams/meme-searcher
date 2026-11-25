@@ -25,7 +25,13 @@
 - 미리보기의 **복사** 또는 `Ctrl+C`로 이미지를 복사합니다. 원본 파일을 첨부하려면 **파일로 복사**를, 파일을 PC에 받으려면 **원본 저장**을 누르세요. GIF는 원본 파일로 복사합니다.
 - 웹 원본을 열 수 없고 썸네일만 남아 있으면 **미리보기 이미지 복사**로 표시된 해상도의 이미지를 복사할 수 있습니다.
 
+## 마법의 소라고동
+
+**마법의 소라고동**은 왼쪽 메뉴에서 열 수 있습니다. 창 폭이 좁으면 하단의 **소라고동**을 누르세요. 질문을 쓴 뒤 그림 속 고리를 당겼다가 놓으면 대답합니다. 키보드로는 고리에 포커스를 옮기고 Space를 눌렀다 놓으세요. **원 위시 윌로우**에서는 하루 한 번 가지를 꺾어 소원을 빌 수 있습니다. 두 놀이는 PC에서 동작하며 검색 횟수를 쓰지 않습니다.
+
 ## 실행 문제
+
+소라고동 화면에서 런타임 설치 안내가 보이면 [Microsoft Edge WebView2 런타임](https://developer.microsoft.com/microsoft-edge/webview2/)을 설치한 뒤 메뉴를 다시 여세요.
 
 배포 ZIP은 코드 서명되지 않아 Windows SmartScreen 경고가 표시될 수 있습니다. 실행할 때 `VCRUNTIME` 또는 `MSVCP` DLL이 없다는 오류가 뜨면 Microsoft의 x64 런타임을 설치하세요. [VC++ v14 x64 다운로드](https://aka.ms/vc14/vc_redist.x64.exe) · [Microsoft 런타임 안내](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist/)
 

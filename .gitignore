@@ -6,6 +6,7 @@ build/
 dist/
 /meme_searcher.exe
 /flutter_windows.dll
+/WebView2Loader.dll
 /*_plugin.dll
 /native_assets.json
 /data/
