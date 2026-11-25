@@ -1,11 +1,14 @@
 #include "flutter_window.h"
 
 #include <shobjidl.h>
+#include <shlguid.h>
 #include <shellapi.h>
 #include <wincodec.h>
 
 #include <flutter/standard_method_codec.h>
 
+#include <algorithm>
+#include <cstdint>
 #include <cstring>
 #include <filesystem>
 #include <optional>
@@ -19,12 +22,9 @@ namespace {
 constexpr char kMediaActionsChannel[] =
     "dev.memesearcher.meme_searcher/media_actions";
 
-struct ClipboardDropFiles {
-  DWORD pFiles;
-  POINT pt;
-  BOOL fNC;
-  BOOL fWide;
-};
+constexpr wchar_t kPngClipboardFormat[] = L"PNG";
+constexpr wchar_t kPreferredDropEffectFormat[] = L"Preferred DropEffect";
+constexpr SIZE_T kMaxHeadlessClipboardBytes = 64 * 1024 * 1024;
 
 std::wstring Utf16FromUtf8(const std::string& value) {
   if (value.empty()) {
@@ -60,97 +60,65 @@ flutter::EncodableMap Success(const char* mode, const char* message) {
           {flutter::EncodableValue("message"), flutter::EncodableValue(message)}};
 }
 
-HGLOBAL CreateDropFiles(const std::wstring& path) {
-  const size_t byte_count = sizeof(ClipboardDropFiles) +
-                            (path.size() + 2) * sizeof(wchar_t);
-  auto handle = GlobalAlloc(GMEM_MOVEABLE | GMEM_ZEROINIT, byte_count);
-  if (!handle) {
-    return nullptr;
-  }
-  auto* drop_files = static_cast<ClipboardDropFiles*>(GlobalLock(handle));
-  if (!drop_files) {
-    GlobalFree(handle);
-    return nullptr;
-  }
-  drop_files->pFiles = sizeof(ClipboardDropFiles);
-  drop_files->fWide = TRUE;
-  auto* destination = reinterpret_cast<wchar_t*>(
-      reinterpret_cast<BYTE*>(drop_files) + sizeof(ClipboardDropFiles));
-  memcpy(destination, path.c_str(), path.size() * sizeof(wchar_t));
-  GlobalUnlock(handle);
-  return handle;
-}
+struct DecodedImage {
+  UINT width = 0;
+  UINT height = 0;
+  std::vector<BYTE> pbgra;
+};
 
-HGLOBAL CreateStaticImageDib(const std::wstring& path) {
-  IWICImagingFactory* factory = nullptr;
-  IWICBitmapDecoder* decoder = nullptr;
+bool DecodeFirstFrame(IWICImagingFactory* factory, IWICBitmapDecoder* decoder,
+                      DecodedImage* image) {
+  if (!factory || !decoder || !image) return false;
   IWICBitmapFrameDecode* frame = nullptr;
   IWICFormatConverter* converter = nullptr;
-  HGLOBAL result = nullptr;
+  HRESULT status = decoder->GetFrame(0, &frame);
+  if (SUCCEEDED(status)) status = factory->CreateFormatConverter(&converter);
+  if (SUCCEEDED(status)) status = converter->Initialize(
+      frame, GUID_WICPixelFormat32bppPBGRA, WICBitmapDitherTypeNone, nullptr,
+      0, WICBitmapPaletteTypeCustom);
+  UINT width = 0, height = 0;
+  if (SUCCEEDED(status)) status = converter->GetSize(&width, &height);
+  const size_t stride = static_cast<size_t>(width) * 4;
+  const size_t bytes = stride * height;
+  if (SUCCEEDED(status) && width > 0 && height > 0 && width <= LONG_MAX &&
+      static_cast<uint64_t>(width) * height <= 4000000 &&
+      stride <= MAXUINT && bytes / height == stride && bytes <= MAXUINT) {
+    image->width = width;
+    image->height = height;
+    image->pbgra.resize(bytes);
+    status = converter->CopyPixels(nullptr, static_cast<UINT>(stride),
+                                   static_cast<UINT>(bytes), image->pbgra.data());
+    if (FAILED(status)) image->pbgra.clear();
+  }
+  if (converter) converter->Release();
+  if (frame) frame->Release();
+  return SUCCEEDED(status) && !image->pbgra.empty();
+}
 
+bool DecodeImageFromFile(const std::wstring& path, DecodedImage* image) {
+  if (!image) return false;
+  IWICImagingFactory* factory = nullptr;
+  IWICBitmapDecoder* decoder = nullptr;
   HRESULT status = CoCreateInstance(CLSID_WICImagingFactory, nullptr,
                                     CLSCTX_INPROC_SERVER,
                                     IID_PPV_ARGS(&factory));
   if (SUCCEEDED(status)) {
-    status = factory->CreateDecoderFromFilename(path.c_str(), nullptr, GENERIC_READ,
+    status = factory->CreateDecoderFromFilename(path.c_str(), nullptr,
+                                                GENERIC_READ,
                                                 WICDecodeMetadataCacheOnLoad,
                                                 &decoder);
   }
-  if (SUCCEEDED(status)) status = decoder->GetFrame(0, &frame);
-  if (SUCCEEDED(status)) status = factory->CreateFormatConverter(&converter);
-  if (SUCCEEDED(status)) {
-    status = converter->Initialize(frame, GUID_WICPixelFormat32bppPBGRA,
-                                   WICBitmapDitherTypeNone, nullptr, 0,
-                                   WICBitmapPaletteTypeCustom);
-  }
-  UINT width = 0;
-  UINT height = 0;
-  if (SUCCEEDED(status)) status = converter->GetSize(&width, &height);
-  const UINT stride = width * 4;
-  const size_t pixel_bytes = static_cast<size_t>(stride) * height;
-  if (SUCCEEDED(status) && width > 0 && height > 0 &&
-      pixel_bytes <= MAXDWORD - sizeof(BITMAPINFOHEADER)) {
-    result = GlobalAlloc(GMEM_MOVEABLE, sizeof(BITMAPINFOHEADER) + pixel_bytes);
-    if (result) {
-      auto* bits = static_cast<BYTE*>(GlobalLock(result));
-      if (!bits) {
-        GlobalFree(result);
-        result = nullptr;
-      } else {
-        auto* header = reinterpret_cast<BITMAPINFOHEADER*>(bits);
-        ZeroMemory(header, sizeof(*header));
-        header->biSize = sizeof(*header);
-        header->biWidth = static_cast<LONG>(width);
-        header->biHeight = -static_cast<LONG>(height);
-        header->biPlanes = 1;
-        header->biBitCount = 32;
-        header->biCompression = BI_RGB;
-        status = converter->CopyPixels(nullptr, stride,
-                                       static_cast<UINT>(pixel_bytes),
-                                       bits + sizeof(BITMAPINFOHEADER));
-        GlobalUnlock(result);
-        if (FAILED(status)) {
-          GlobalFree(result);
-          result = nullptr;
-        }
-      }
-    }
-  }
-  if (converter) converter->Release();
-  if (frame) frame->Release();
+  const bool decoded = SUCCEEDED(status) && DecodeFirstFrame(factory, decoder, image);
   if (decoder) decoder->Release();
   if (factory) factory->Release();
-  return result;
+  return decoded;
 }
 
-HGLOBAL CreateStaticImageDibFromPng(const std::vector<uint8_t>& png) {
-  if (png.empty()) return nullptr;
+bool DecodeImageFromPng(const std::vector<uint8_t>& png, DecodedImage* image) {
+  if (png.empty() || png.size() > MAXDWORD || !image) return false;
   IWICImagingFactory* factory = nullptr;
   IWICStream* stream = nullptr;
   IWICBitmapDecoder* decoder = nullptr;
-  IWICBitmapFrameDecode* frame = nullptr;
-  IWICFormatConverter* converter = nullptr;
-  HGLOBAL result = nullptr;
   HRESULT status = CoCreateInstance(CLSID_WICImagingFactory, nullptr,
                                     CLSCTX_INPROC_SERVER,
                                     IID_PPV_ARGS(&factory));
@@ -164,52 +132,153 @@ HGLOBAL CreateStaticImageDibFromPng(const std::vector<uint8_t>& png) {
                                               WICDecodeMetadataCacheOnLoad,
                                               &decoder);
   }
-  if (SUCCEEDED(status)) status = decoder->GetFrame(0, &frame);
-  if (SUCCEEDED(status)) status = factory->CreateFormatConverter(&converter);
-  if (SUCCEEDED(status)) {
-    status = converter->Initialize(frame, GUID_WICPixelFormat32bppPBGRA,
-                                   WICBitmapDitherTypeNone, nullptr, 0,
-                                   WICBitmapPaletteTypeCustom);
-  }
-  UINT width = 0;
-  UINT height = 0;
-  if (SUCCEEDED(status)) status = converter->GetSize(&width, &height);
-  const UINT stride = width * 4;
-  const size_t pixel_bytes = static_cast<size_t>(stride) * height;
-  if (SUCCEEDED(status) && width > 0 && height > 0 &&
-      pixel_bytes <= MAXDWORD - sizeof(BITMAPINFOHEADER)) {
-    result = GlobalAlloc(GMEM_MOVEABLE, sizeof(BITMAPINFOHEADER) + pixel_bytes);
-    if (result) {
-      auto* bits = static_cast<BYTE*>(GlobalLock(result));
-      if (!bits) {
-        GlobalFree(result);
-        result = nullptr;
-      } else {
-        auto* header = reinterpret_cast<BITMAPINFOHEADER*>(bits);
-        ZeroMemory(header, sizeof(*header));
-        header->biSize = sizeof(*header);
-        header->biWidth = static_cast<LONG>(width);
-        header->biHeight = -static_cast<LONG>(height);
-        header->biPlanes = 1;
-        header->biBitCount = 32;
-        header->biCompression = BI_RGB;
-        status = converter->CopyPixels(nullptr, stride,
-                                       static_cast<UINT>(pixel_bytes),
-                                       bits + sizeof(BITMAPINFOHEADER));
-        GlobalUnlock(result);
-        if (FAILED(status)) {
-          GlobalFree(result);
-          result = nullptr;
-        }
-      }
-    }
-  }
-  if (converter) converter->Release();
-  if (frame) frame->Release();
+  const bool decoded = SUCCEEDED(status) && DecodeFirstFrame(factory, decoder, image);
   if (decoder) decoder->Release();
   if (stream) stream->Release();
   if (factory) factory->Release();
-  return result;
+  return decoded;
+}
+
+HGLOBAL CopyToGlobalMemory(const void* source, size_t size) {
+  if (!source || size == 0) return nullptr;
+  HGLOBAL handle = GlobalAlloc(GMEM_MOVEABLE | GMEM_ZEROINIT, size);
+  if (!handle) return nullptr;
+  void* destination = GlobalLock(handle);
+  if (!destination) {
+    GlobalFree(handle);
+    return nullptr;
+  }
+  memcpy(destination, source, size);
+  GlobalUnlock(handle);
+  return handle;
+}
+
+HGLOBAL CreateClassicDib(const DecodedImage& image) {
+  const size_t unpadded_row = static_cast<size_t>(image.width) * 3;
+  const size_t stride = (unpadded_row + 3) & ~static_cast<size_t>(3);
+  const size_t pixels = stride * image.height;
+  if (image.width == 0 || image.height == 0 || image.width > LONG_MAX ||
+      image.height > LONG_MAX ||
+      stride < unpadded_row || pixels / image.height != stride ||
+      pixels > MAXDWORD - sizeof(BITMAPINFOHEADER)) return nullptr;
+  HGLOBAL handle = GlobalAlloc(GMEM_MOVEABLE | GMEM_ZEROINIT,
+                               sizeof(BITMAPINFOHEADER) + pixels);
+  if (!handle) return nullptr;
+  auto* output = static_cast<BYTE*>(GlobalLock(handle));
+  if (!output) {
+    GlobalFree(handle);
+    return nullptr;
+  }
+  auto* header = reinterpret_cast<BITMAPINFOHEADER*>(output);
+  header->biSize = sizeof(*header);
+  header->biWidth = static_cast<LONG>(image.width);
+  header->biHeight = static_cast<LONG>(image.height);  // Bottom-up, legacy-safe.
+  header->biPlanes = 1;
+  header->biBitCount = 24;
+  header->biCompression = BI_RGB;
+  header->biSizeImage = static_cast<DWORD>(pixels);
+  BYTE* destination = output + sizeof(BITMAPINFOHEADER);
+  for (UINT y = 0; y < image.height; ++y) {
+    const BYTE* source = image.pbgra.data() +
+        static_cast<size_t>(image.height - 1 - y) * image.width * 4;
+    BYTE* row = destination + static_cast<size_t>(y) * stride;
+    for (UINT x = 0; x < image.width; ++x) {
+      const BYTE alpha = source[x * 4 + 3];
+      row[x * 3] = static_cast<BYTE>(std::min(255u, source[x * 4] + 255u - alpha));
+      row[x * 3 + 1] = static_cast<BYTE>(std::min(255u, source[x * 4 + 1] + 255u - alpha));
+      row[x * 3 + 2] = static_cast<BYTE>(std::min(255u, source[x * 4 + 2] + 255u - alpha));
+    }
+  }
+  GlobalUnlock(handle);
+  return handle;
+}
+
+bool EncodePng(const DecodedImage& image, std::vector<uint8_t>* png) {
+  if (!png || image.pbgra.empty()) return false;
+  IWICImagingFactory* factory = nullptr;
+  IWICBitmap* bitmap = nullptr;
+  IWICBitmapEncoder* encoder = nullptr;
+  IWICBitmapFrameEncode* frame = nullptr;
+  IStream* stream = nullptr;
+  HRESULT status = CoCreateInstance(CLSID_WICImagingFactory, nullptr,
+      CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&factory));
+  if (SUCCEEDED(status)) status = CreateStreamOnHGlobal(nullptr, TRUE, &stream);
+  if (SUCCEEDED(status)) status = factory->CreateEncoder(GUID_ContainerFormatPng,
+      nullptr, &encoder);
+  if (SUCCEEDED(status)) status = encoder->Initialize(stream, WICBitmapEncoderNoCache);
+  if (SUCCEEDED(status)) status = encoder->CreateNewFrame(&frame, nullptr);
+  if (SUCCEEDED(status)) status = frame->Initialize(nullptr);
+  if (SUCCEEDED(status)) status = frame->SetSize(image.width, image.height);
+  WICPixelFormatGUID format = GUID_WICPixelFormat32bppPBGRA;
+  if (SUCCEEDED(status)) status = frame->SetPixelFormat(&format);
+  const size_t stride = static_cast<size_t>(image.width) * 4;
+  if (SUCCEEDED(status) && stride <= MAXUINT && image.pbgra.size() <= MAXUINT) {
+    // Let the encoder negotiate its destination format, then have WIC convert
+    // the explicitly-premultiplied source instead of mislabeling it as BGRA.
+    status = factory->CreateBitmapFromMemory(image.width, image.height,
+        GUID_WICPixelFormat32bppPBGRA, static_cast<UINT>(stride),
+        static_cast<UINT>(image.pbgra.size()),
+        const_cast<BYTE*>(image.pbgra.data()), &bitmap);
+  }
+  if (SUCCEEDED(status)) status = frame->WriteSource(bitmap, nullptr);
+  if (SUCCEEDED(status)) status = frame->Commit();
+  if (SUCCEEDED(status)) status = encoder->Commit();
+  HGLOBAL memory = nullptr;
+  if (SUCCEEDED(status)) status = GetHGlobalFromStream(stream, &memory);
+  if (SUCCEEDED(status) && memory) {
+    STATSTG stat = {};
+    if (FAILED(stream->Stat(&stat, STATFLAG_NONAME)) || stat.cbSize.HighPart != 0 ||
+        stat.cbSize.LowPart == 0) status = E_FAIL;
+    const SIZE_T size = stat.cbSize.LowPart;
+    const void* bytes = GlobalLock(memory);
+    if (SUCCEEDED(status) && bytes && size > 0) png->assign(
+        static_cast<const uint8_t*>(bytes), static_cast<const uint8_t*>(bytes) + size);
+    if (bytes) GlobalUnlock(memory);
+    if (png->empty()) status = E_FAIL;
+  }
+  if (frame) frame->Release();
+  if (bitmap) bitmap->Release();
+  if (encoder) encoder->Release();
+  if (stream) stream->Release();
+  if (factory) factory->Release();
+  return SUCCEEDED(status) && !png->empty();
+}
+
+bool SetPreferredDropEffect(IDataObject* data_object) {
+  const UINT format = RegisterClipboardFormatW(kPreferredDropEffectFormat);
+  if (!data_object || !format) return false;
+  HGLOBAL memory = GlobalAlloc(GMEM_MOVEABLE, sizeof(DWORD));
+  if (!memory) return false;
+  auto* effect = static_cast<DWORD*>(GlobalLock(memory));
+  if (!effect) {
+    GlobalFree(memory);
+    return false;
+  }
+  *effect = DROPEFFECT_COPY;
+  GlobalUnlock(memory);
+  FORMATETC format_etc = {static_cast<CLIPFORMAT>(format), nullptr,
+                           DVASPECT_CONTENT, -1, TYMED_HGLOBAL};
+  STGMEDIUM medium = {};
+  medium.tymed = TYMED_HGLOBAL;
+  medium.hGlobal = memory;
+  const HRESULT status = data_object->SetData(&format_etc, &medium, TRUE);
+  if (FAILED(status)) GlobalFree(memory);
+  return SUCCEEDED(status);
+}
+
+bool CopyShellFileToClipboard(const std::wstring& path) {
+  IShellItem* item = nullptr;
+  IDataObject* data_object = nullptr;
+  HRESULT status = SHCreateItemFromParsingName(path.c_str(), nullptr,
+                                               IID_PPV_ARGS(&item));
+  if (SUCCEEDED(status)) status = item->BindToHandler(nullptr, BHID_DataObject,
+                                                       IID_PPV_ARGS(&data_object));
+  if (SUCCEEDED(status)) SetPreferredDropEffect(data_object);
+  if (SUCCEEDED(status)) status = OleSetClipboard(data_object);
+  if (SUCCEEDED(status)) status = OleFlushClipboard();
+  if (data_object) data_object->Release();
+  if (item) item->Release();
+  return SUCCEEDED(status);
 }
 
 const std::vector<uint8_t>* BytesArgument(const flutter::EncodableMap& values,
@@ -233,6 +302,26 @@ bool IsHeadlessTestMode() {
   return length == 1 && value[0] == L'1';
 }
 
+std::string Utf8FromUtf16(const std::wstring& value) {
+  if (value.empty()) return {};
+  const int length = WideCharToMultiByte(CP_UTF8, 0, value.data(),
+      static_cast<int>(value.size()), nullptr, 0, nullptr, nullptr);
+  std::string result(length, '\0');
+  if (length > 0) WideCharToMultiByte(CP_UTF8, 0, value.data(),
+      static_cast<int>(value.size()), result.data(), length, nullptr, nullptr);
+  return result;
+}
+
+std::string CurrentWindowStationName() {
+  DWORD bytes = 0;
+  HWINSTA station = GetProcessWindowStation();
+  if (!station || GetUserObjectInformationW(station, UOI_NAME, nullptr, 0, &bytes) ||
+      GetLastError() != ERROR_INSUFFICIENT_BUFFER || bytes < sizeof(wchar_t)) return {};
+  std::vector<wchar_t> name(bytes / sizeof(wchar_t) + 1, L'\0');
+  if (!GetUserObjectInformationW(station, UOI_NAME, name.data(), bytes, &bytes)) return {};
+  return Utf8FromUtf16(name.data());
+}
+
 flutter::EncodableMap InspectClipboardForHeadlessTest(HWND owner) {
   flutter::EncodableMap details;
   if (!OpenClipboard(owner)) {
@@ -242,6 +331,49 @@ flutter::EncodableMap InspectClipboardForHeadlessTest(HWND owner) {
   details[flutter::EncodableValue("opened")] = flutter::EncodableValue(true);
   details[flutter::EncodableValue("hasDib")] =
       flutter::EncodableValue(IsClipboardFormatAvailable(CF_DIB) != FALSE);
+  details[flutter::EncodableValue("dibHeight")] = flutter::EncodableValue(int64_t{0});
+  details[flutter::EncodableValue("dibBitCount")] = flutter::EncodableValue(int64_t{0});
+  const UINT png_format = RegisterClipboardFormatW(kPngClipboardFormat);
+  const HGLOBAL png = png_format ? static_cast<HGLOBAL>(GetClipboardData(png_format)) : nullptr;
+  details[flutter::EncodableValue("hasPng")] = flutter::EncodableValue(png != nullptr);
+  std::vector<uint8_t> png_bytes;
+  if (png) {
+    const SIZE_T size = GlobalSize(png);
+    const auto* bytes = static_cast<const uint8_t*>(GlobalLock(png));
+    if (bytes && size > 0 && size <= kMaxHeadlessClipboardBytes) {
+      png_bytes.assign(bytes, bytes + size);
+    }
+    if (bytes) GlobalUnlock(png);
+  }
+  details[flutter::EncodableValue("pngBytes")] = flutter::EncodableValue(png_bytes);
+  const HGLOBAL dib = static_cast<HGLOBAL>(GetClipboardData(CF_DIB));
+  if (dib) {
+    const auto* header = static_cast<const BITMAPINFOHEADER*>(GlobalLock(dib));
+    if (header && header->biSize >= sizeof(BITMAPINFOHEADER)) {
+      details[flutter::EncodableValue("dibHeight")] = flutter::EncodableValue(
+          static_cast<int64_t>(header->biHeight));
+      details[flutter::EncodableValue("dibBitCount")] = flutter::EncodableValue(
+          static_cast<int64_t>(header->biBitCount));
+    }
+    if (header) GlobalUnlock(dib);
+  }
+  const HBITMAP bitmap = static_cast<HBITMAP>(GetClipboardData(CF_BITMAP));
+  BITMAP bitmap_info = {};
+  details[flutter::EncodableValue("hasBitmap")] = flutter::EncodableValue(
+      bitmap && GetObjectW(bitmap, sizeof(bitmap_info), &bitmap_info) != 0);
+  const UINT shell_id_list = RegisterClipboardFormatW(L"Shell IDList Array");
+  details[flutter::EncodableValue("hasShellIdList")] = flutter::EncodableValue(
+      shell_id_list && IsClipboardFormatAvailable(shell_id_list) != FALSE);
+  const UINT drop_effect_format = RegisterClipboardFormatW(kPreferredDropEffectFormat);
+  const HGLOBAL drop_effect = drop_effect_format
+      ? static_cast<HGLOBAL>(GetClipboardData(drop_effect_format)) : nullptr;
+  int64_t drop_effect_value = 0;
+  if (drop_effect && GlobalSize(drop_effect) >= sizeof(DWORD)) {
+    const auto* value = static_cast<const DWORD*>(GlobalLock(drop_effect));
+    if (value) drop_effect_value = *value;
+    if (value) GlobalUnlock(drop_effect);
+  }
+  details[flutter::EncodableValue("dropEffect")] = flutter::EncodableValue(drop_effect_value);
   const auto drop = static_cast<HDROP>(GetClipboardData(CF_HDROP));
   const UINT count = drop ? DragQueryFileW(drop, 0xFFFFFFFF, nullptr, 0) : 0;
   details[flutter::EncodableValue("hasFileDrop")] =
@@ -251,15 +383,8 @@ flutter::EncodableMap InspectClipboardForHeadlessTest(HWND owner) {
     std::wstring path(length + 1, L'\0');
     DragQueryFileW(drop, 0, path.data(), static_cast<UINT>(path.size()));
     path.resize(length);
-    const int utf8_length = WideCharToMultiByte(CP_UTF8, 0, path.data(),
-                                                static_cast<int>(path.size()),
-                                                nullptr, 0, nullptr, nullptr);
-    std::string utf8(utf8_length, '\0');
-    if (utf8_length > 0) {
-      WideCharToMultiByte(CP_UTF8, 0, path.data(), static_cast<int>(path.size()),
-                          utf8.data(), utf8_length, nullptr, nullptr);
-    }
-    details[flutter::EncodableValue("filePath")] = flutter::EncodableValue(utf8);
+    details[flutter::EncodableValue("filePath")] =
+        flutter::EncodableValue(Utf8FromUtf16(path));
   }
   CloseClipboard();
   return details;
@@ -268,33 +393,38 @@ flutter::EncodableMap InspectClipboardForHeadlessTest(HWND owner) {
 bool CopyToClipboard(HWND owner, const std::wstring& path, bool is_gif,
                      const std::vector<uint8_t>* fallback_png) {
   if (!IsWindow(owner)) return false;
-  HGLOBAL files = CreateDropFiles(path);
-  HGLOBAL dib = nullptr;
-  if (!is_gif) {
-    dib = CreateStaticImageDib(path);
-    if (!dib && fallback_png) dib = CreateStaticImageDibFromPng(*fallback_png);
-  }
-  if ((is_gif ? !files : !dib) || !OpenClipboard(owner)) {
+  if (is_gif) return CopyShellFileToClipboard(path);
+  DecodedImage image;
+  if (!DecodeImageFromFile(path, &image) &&
+      (!fallback_png || !DecodeImageFromPng(*fallback_png, &image))) return false;
+  std::vector<uint8_t> encoded_png;
+  const std::vector<uint8_t>* png = fallback_png && !fallback_png->empty()
+      ? fallback_png : &encoded_png;
+  if ((png == &encoded_png && !EncodePng(image, &encoded_png)) || png->empty()) return false;
+  HGLOBAL dib = CreateClassicDib(image);
+  HGLOBAL png_memory = CopyToGlobalMemory(png->data(), png->size());
+  const UINT png_format = RegisterClipboardFormatW(kPngClipboardFormat);
+  if (!dib || !png_memory || !png_format || !OpenClipboard(owner)) {
     if (dib) GlobalFree(dib);
-    if (files) GlobalFree(files);
+    if (png_memory) GlobalFree(png_memory);
     return false;
   }
   bool copied = false;
   if (EmptyClipboard()) {
-    // Static images should paste as pixels. A GIF needs the original file
-    // because the bitmap clipboard format can only represent one frame.
-    if (dib && SetClipboardData(CF_DIB, dib)) {
-      dib = nullptr;
+    // Keep static images image-only: file drops make some native targets paste
+    // a blank attachment instead of the pixel payload.
+    if (png_memory && SetClipboardData(png_format, png_memory)) {
+      png_memory = nullptr;
       copied = true;
     }
-    if ((copied || is_gif) && files && SetClipboardData(CF_HDROP, files)) {
-      files = nullptr;
+    if (dib && SetClipboardData(CF_DIB, dib)) {
+      dib = nullptr;
       copied = true;
     }
   }
   CloseClipboard();
   if (dib) GlobalFree(dib);
-  if (files) GlobalFree(files);
+  if (png_memory) GlobalFree(png_memory);
   return copied;
 }
 
@@ -358,6 +488,14 @@ bool FlutterWindow::OnCreate() {
           result->Success(InspectClipboardForHeadlessTest(owner));
           return;
         }
+        if (call.method_name() == "debugWindowStation") {
+          if (!IsHeadlessTestMode()) {
+            result->Error("test_only", "Window-station inspection is available only to headless tests.");
+            return;
+          }
+          result->Success(flutter::EncodableValue(CurrentWindowStationName()));
+          return;
+        }
         const auto* arguments = call.arguments();
         if (!arguments || !std::holds_alternative<flutter::EncodableMap>(*arguments)) {
           result->Error("invalid_file", "The original file was not found.");
@@ -370,9 +508,14 @@ bool FlutterWindow::OnCreate() {
           result->Error("invalid_file", "The original file was not found.");
           return;
         }
-        if (call.method_name() == "copy") {
-          if (!CopyToClipboard(owner, path, IsGifMimeType(StringArgument(values, "mime"), path),
-                               BytesArgument(values, "clipboardPng"))) {
+        if (call.method_name() == "copy" || call.method_name() == "copyFile") {
+          const bool original_file = call.method_name() == "copyFile";
+          const bool copied = original_file
+              ? CopyShellFileToClipboard(path)
+              : CopyToClipboard(owner, path,
+                  IsGifMimeType(StringArgument(values, "mime"), path),
+                  BytesArgument(values, "clipboardPng"));
+          if (!copied) {
             result->Error("clipboard_failed", "Could not copy the original file.");
             return;
           }

@@ -1014,6 +1014,17 @@ class _PreviewDialogState extends State<_PreviewDialog> {
                       icon: const Icon(Icons.copy_outlined),
                       label: Text(_previewOnly ? '미리보기 이미지 복사' : '복사'),
                     ),
+                    if (Platform.isWindows && !_previewOnly && !displayed.isGif)
+                      OutlinedButton.icon(
+                        onPressed: _media == null
+                            ? null
+                            : () => _run(
+                                widget.actions.copyFile,
+                                '원본 파일을 복사했어요.',
+                              ),
+                        icon: const Icon(Icons.file_copy_outlined),
+                        label: const Text('파일로 복사'),
+                      ),
                     OutlinedButton.icon(
                       onPressed: _media == null || _previewOnly
                           ? null
@@ -1021,13 +1032,14 @@ class _PreviewDialogState extends State<_PreviewDialog> {
                       icon: const Icon(Icons.download_outlined),
                       label: const Text('원본 저장'),
                     ),
-                    OutlinedButton.icon(
-                      onPressed: _media == null || _previewOnly
-                          ? null
-                          : () => _run(widget.actions.share, '공유 화면을 열었어요.'),
-                      icon: const Icon(Icons.ios_share_outlined),
-                      label: const Text('공유'),
-                    ),
+                    if (!Platform.isWindows)
+                      OutlinedButton.icon(
+                        onPressed: _media == null || _previewOnly
+                            ? null
+                            : () => _run(widget.actions.share, '공유 화면을 열었어요.'),
+                        icon: const Icon(Icons.ios_share_outlined),
+                        label: const Text('공유'),
+                      ),
                     if (widget.asset.isWeb)
                       OutlinedButton.icon(
                         onPressed: _media == null || _previewOnly

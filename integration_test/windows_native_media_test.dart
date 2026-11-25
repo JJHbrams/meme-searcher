@@ -26,6 +26,17 @@ void main() {
   final liveProvider =
       liveMedia && Platform.environment[_liveProviderEnvironment] == '1';
 
+  final expectedStation =
+      Platform.environment['MEME_SEARCHER_TEST_WINDOW_STATION'];
+  if (headless && expectedStation != null) {
+    setUpAll(() async {
+      expect(
+        await _channel.invokeMethod<String>('debugWindowStation'),
+        expectedStation,
+      );
+    });
+  }
+
   testWidgets('copies GIF original as CF_HDROP with unchanged bytes', (
     tester,
   ) async {
@@ -54,6 +65,9 @@ void main() {
     expect(clipboard['opened'], isTrue);
     expect(clipboard['hasFileDrop'], isTrue);
     expect(clipboard['hasDib'], isFalse);
+    expect(clipboard['hasPng'], isFalse);
+    expect(clipboard['hasShellIdList'], isTrue);
+    expect(clipboard['dropEffect'], 1); // DROPEFFECT_COPY
     final copiedPath = clipboard['filePath'] as String?;
     expect(copiedPath, isNotNull);
     expect(_samePath(copiedPath!, fixture.path), isTrue);
@@ -61,34 +75,85 @@ void main() {
     expect(sha256.convert(copiedBytes), sha256.convert(fixture.bytes));
   }, skip: !headless);
 
-  testWidgets('copies PNG as CF_HDROP plus CF_DIB', (tester) async {
+  testWidgets('pastes PNG as pixels in PNG and Windows bitmap formats', (
+    tester,
+  ) async {
     final fixture = await _readFixture('kejang-coming-ruliweb.png');
-    final result = await MediaActions().copy(
-      MediaFile(
-        bytes: fixture.bytes,
-        path: fixture.path,
-        asset: const MemeAsset(
-          id: 'headless-png',
-          title: 'Headless PNG fixture',
-          origin: 'library',
-          format: 'PNG',
-          mime: 'image/png',
-        ),
+    final png = MediaFile(
+      bytes: fixture.bytes,
+      path: fixture.path,
+      asset: const MemeAsset(
+        id: 'headless-png',
+        title: 'Headless PNG fixture',
+        origin: 'library',
+        format: 'PNG',
+        mime: 'image/png',
       ),
     );
+    final result = await MediaActions().copy(png);
     expect(result.completed, isTrue);
 
     final clipboard = await _clipboardState();
     expect(clipboard['opened'], isTrue);
-    expect(clipboard['hasFileDrop'], isTrue);
+    expect(clipboard['hasFileDrop'], isFalse);
     expect(clipboard['hasDib'], isTrue);
-    final copiedPath = clipboard['filePath'] as String?;
-    expect(copiedPath, isNotNull);
-    expect(_samePath(copiedPath!, fixture.path), isTrue);
-    expect(
-      sha256.convert(await File(copiedPath).readAsBytes()),
-      sha256.convert(fixture.bytes),
+    expect(clipboard['hasBitmap'], isTrue);
+    expect(clipboard['hasPng'], isTrue);
+    // The Windows allocator may add padding after the PNG end marker.
+    final pngBytes = clipboard['pngBytes'] as Uint8List;
+    expect(pngBytes.take(fixture.bytes.length), orderedEquals(fixture.bytes));
+    expect(clipboard['dibHeight'], image.decodePng(fixture.bytes)!.height);
+    expect(clipboard['dibBitCount'], 24);
+    expect((await MediaActions().copyFile(png)).completed, isTrue);
+    final fileCopy = await _clipboardState();
+    expect(fileCopy['hasFileDrop'], isTrue);
+    expect(fileCopy['hasDib'], isFalse);
+    expect(fileCopy['hasShellIdList'], isTrue);
+    expect(_samePath(fileCopy['filePath'] as String, png.path), isTrue);
+  }, skip: !headless);
+
+  testWidgets('copies a JPEG as decodable PNG and a bitmap', (tester) async {
+    final bytes = image.encodeJpg(image.Image(width: 3, height: 2));
+    final dir = await Directory.systemTemp.createTemp('meme-searcher-native-');
+    addTearDown(() => dir.delete(recursive: true));
+    final file = await File('${dir.path}/sample.jpg').writeAsBytes(bytes);
+    final media = MediaFile(
+      bytes: bytes,
+      path: file.path,
+      asset: const MemeAsset(
+        id: 'jpg',
+        title: 'JPEG',
+        origin: 'library',
+        format: 'JPEG',
+      ),
     );
+    expect((await MediaActions().copy(media)).completed, isTrue);
+    final clipboard = await _clipboardState();
+    expect(clipboard['hasBitmap'], isTrue);
+    expect(clipboard['hasFileDrop'], isFalse);
+    final png = image.decodePng(clipboard['pngBytes'] as Uint8List)!;
+    expect((png.width, png.height), (3, 2));
+  }, skip: !headless);
+
+  testWidgets('native PNG fallback preserves translucent pixel colors', (
+    tester,
+  ) async {
+    final pixels = image.Image(width: 3, height: 2, numChannels: 4)
+      ..setPixelRgba(0, 0, 255, 0, 0, 128)
+      ..setPixelRgba(0, 1, 0, 0, 255, 255);
+    final dir = await Directory.systemTemp.createTemp('meme-searcher-native-');
+    addTearDown(() => dir.delete(recursive: true));
+    final file = await File('${dir.path}/alpha.png')
+        .writeAsBytes(image.encodePng(pixels));
+    await _channel.invokeMethod<Object?>('copy', {
+      'path': file.path,
+      'mime': 'image/png',
+    });
+    final clipboard = await _clipboardState();
+    final png = image.decodePng(clipboard['pngBytes'] as Uint8List)!;
+    final top = png.getPixel(0, 0);
+    expect([top.r, top.g, top.b, top.a], [255, 0, 0, 128]);
+    expect(png.getPixel(0, 1).b, 255);
   }, skip: !headless);
 
   testWidgets('round-trips only a synthetic secure-storage test key', (
@@ -123,7 +188,8 @@ void main() {
       final clipboard = await _clipboardState();
       expect(clipboard['opened'], isTrue);
       expect(clipboard['hasDib'], isTrue);
-      expect(clipboard['hasFileDrop'], isTrue);
+      expect(clipboard['hasPng'], isTrue);
+      expect(clipboard['hasFileDrop'], isFalse);
       // ignore: avoid_print
       print(
         'Live media copy: format=${media.asset.format}; '
@@ -180,9 +246,9 @@ void main() {
           (attempt) => attempt.engine == 'google',
         );
         expect(google.status, 'ok');
-        final rows = response.assets.where(
-          (candidate) => candidate.engines.contains('google'),
-        ).toList();
+        final rows = response.assets
+            .where((candidate) => candidate.engines.contains('google'))
+            .toList();
         final sample = rows.take(8).toList();
         final formats = await Future.wait(sample.map(services.probeWebFormat));
         final labelled = formats.whereType<String>().length;
@@ -193,7 +259,7 @@ void main() {
 
         final clipboard = await _clipboardState();
         expect(clipboard['opened'], isTrue);
-        expect(clipboard['hasFileDrop'], isTrue);
+        expect(clipboard['hasFileDrop'], media.asset.isGif);
         expect(clipboard['hasDib'], media.asset.isGif ? isFalse : isTrue);
         // ignore: avoid_print
         print(

@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:image/image.dart' as image;
 
+import '../core/media_inspector.dart';
 import '../core/models.dart';
 
 /// Result returned after a user-triggered native media action.
@@ -63,6 +64,9 @@ class MediaActions {
 
   Future<MediaActionResult> copy(MediaFile file) => _invoke('copy', file);
 
+  Future<MediaActionResult> copyFile(MediaFile file) =>
+      _invoke('copyFile', file);
+
   Future<MediaActionResult> share(MediaFile file) => _invoke('share', file);
 
   Future<MediaActionResult> save(MediaFile file) => _invoke('save', file);
@@ -82,16 +86,17 @@ class MediaActions {
         'name': _suggestedName(file),
       };
       if (action == 'copy' && !file.asset.isGif) {
-        // This is optional recovery data for the native WIC path. Never let a
-        // Dart decoder failure prevent Windows from trying the original file.
-        try {
-          final decoded = image.decodeImage(file.bytes);
-          if (decoded != null) {
-            arguments['clipboardPng'] = Uint8List.fromList(
-              image.encodePng(decoded),
-            );
-          }
-        } catch (_) {}
+        if (MediaInspector.signatureFormat(file.bytes) == 'PNG') {
+          arguments['clipboardPng'] = file.bytes;
+        } else {
+          // Windows can still decode the original through WIC.
+          try {
+            final decoded = image.decodeImage(file.bytes);
+            if (decoded != null) {
+              arguments['clipboardPng'] = image.encodePng(decoded);
+            }
+          } catch (_) {}
+        }
       }
       final result = await _channel.invokeMethod<Object?>(action, arguments);
       return MediaActionResult.fromPlatform(result);
