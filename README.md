@@ -1,10 +1,10 @@
 # Meme Searcher for Windows
 
-밈 키워드로 이미지와 GIF를 찾고, 결과를 Windows 클립보드에 복사하는 데스크톱 앱입니다. 이 저장소와 v1.0.0 배포본은 **Windows 전용**입니다.
+밈 키워드로 이미지와 GIF를 찾고, 결과를 Windows 클립보드에 복사하는 데스크톱 앱입니다.
 
 ## 설치와 실행
 
-Windows 10/11 x64에서 지원합니다. [v1.0.0 릴리스](https://github.com/JJHbrams/meme-searcher/releases/tag/v1.0.0)에서 ZIP을 내려받아 **압축을 폴더 전체로 푼 뒤** `meme_searcher.exe`를 실행하세요. 실행 파일만 따로 옮기면 필요한 DLL과 `data` 폴더가 없어 동작하지 않습니다.
+Windows 10/11 x64에서 [최신 릴리스](https://github.com/JJHbrams/meme-searcher/releases/latest)의 `windows-x64.zip`으로 끝나는 파일을 내려받으세요. **압축을 폴더 전체로 푼 뒤** 그 안의 `meme_searcher.exe`를 실행하세요. DLL과 `data` 폴더도 실행 파일 옆에 있어야 합니다.
 
 배포본은 코드 서명되지 않은 portable ZIP입니다. Windows SmartScreen 경고가 표시될 수 있습니다.
 
@@ -12,7 +12,7 @@ Windows에 `VCRUNTIME` 또는 `MSVCP` DLL이 없다는 오류가 나면 [Microso
 
 ## 사용 방법
 
-1. 첫 실행의 **Google 이미지 검색 연결**에서 SerpApi에 가입하거나 로그인합니다. **API 키 페이지 열기**에서 본인 키를 복사한 뒤 앱으로 돌아와 **복사한 키로 연결**을 누르세요. 앱이 검색 횟수를 쓰지 않는 계정 API로 키를 확인한 뒤 Windows 보안 저장소에 저장합니다. 직접 입력도 가능합니다. **나중에**를 선택하면 바로 내 짤을 이용할 수 있고 설정에서 언제든 연결할 수 있습니다. 이미 저장된 키나 `SERPAPI_API_KEY` 환경 변수가 있으면 첫 실행 안내를 건너뜁니다. v1.0.0 배포본에서는 설정에서 직접 입력하세요.
+1. 첫 실행의 **Google 이미지 검색 연결**에서 SerpApi에 가입하거나 로그인합니다. **API 키 페이지 열기**에서 본인 키를 복사한 뒤 앱으로 돌아와 **복사한 키로 연결**을 누르세요. 앱이 검색 횟수를 쓰지 않는 계정 API로 키를 확인한 뒤 Windows 보안 저장소에 저장합니다. 직접 입력도 가능합니다. **나중에**를 선택하면 바로 내 짤을 이용할 수 있고 설정에서 언제든 연결할 수 있습니다. 이미 저장된 키나 `SERPAPI_API_KEY` 환경 변수가 있으면 첫 실행 안내를 건너뜁니다.
 2. 키워드와 필요하면 `#헬다2`처럼 태그를 입력하고 검색합니다. Google과 Naver 검색 결과를 함께 활용하며, Naver는 결과를 얻을 수 있을 때만 보조적으로 반영됩니다.
 3. 결과를 클릭해 미리 본 뒤 복사합니다. 정적 이미지는 DIB 형식으로, GIF는 원본 바이트 파일을 Windows 클립보드(CF_HDROP)에 올려 둡니다. GIF의 실제 움직임을 보존하기 위한 방식이며, 메신저별 붙여넣기 호환성은 아직 보장하지 않습니다. 최종 붙여넣기와 전송은 사용자가 수행합니다.
 
@@ -35,6 +35,17 @@ flutter build windows --release
 Python 서버는 필요하지 않습니다. 앱은 Flutter 네이티브 코드로 실행됩니다.
 
 Windows 탐색기의 **속성 → 자세히**에서 파일 버전과 제품 버전을 확인할 수 있습니다. 네 자리 중 앞 세 자리는 저장소 루트의 `VERSION`, 마지막 자리는 CI 빌드 번호 또는 로컬 Git 커밋 수입니다.
+
+릴리스 빌드가 끝나면 프로젝트 루트의 `meme_searcher.exe`를 바로 실행할 수 있습니다. `powershell -NoProfile -File .\tools\package-windows-release.ps1`을 실행하면 `dist`에 배포 ZIP과 `SHA256SUMS.txt`가 생깁니다.
+
+GitHub에 배포하려면 최종 커밋에서 빌드한 뒤 아래 명령을 실행하세요. 주석 태그에 입력한 변경 사항이 릴리스 노트가 됩니다.
+
+```powershell
+$tag = 'v' + (Get-Item .\meme_searcher.exe).VersionInfo.FileVersion
+git tag -a $tag
+git push origin $tag
+powershell -NoProfile -File .\tools\package-windows-release.ps1 -Publish
+```
 
 ## 라이선스와 콘텐츠
 

@@ -4,6 +4,11 @@
 .flutter-plugins-dependencies
 build/
 dist/
+/meme_searcher.exe
+/flutter_windows.dll
+/*_plugin.dll
+/native_assets.json
+/data/
 windows/flutter/ephemeral/
 windows/flutter/generated_plugins.cmake
 windows/flutter/generated_plugin_registrant.*
