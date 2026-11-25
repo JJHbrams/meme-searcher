@@ -18,11 +18,6 @@ $distDir = Join-Path $repoRoot 'dist'
 if (-not (Test-Path -LiteralPath $exePath -PathType Leaf)) {
     throw "Release executable not found: $exePath. Run 'flutter build windows --release' first."
 }
-foreach ($required in @('flutter_windows.dll', 'data/app.so', 'data/icudtl.dat', 'data/flutter_assets/AssetManifest.bin')) {
-    if (-not (Test-Path -LiteralPath (Join-Path $releaseDir $required) -PathType Leaf)) {
-        throw "Incomplete Windows release bundle: missing $required."
-    }
-}
 
 $repoVersion = (Get-Content -LiteralPath $versionPath -Raw).Trim()
 if ($repoVersion -notmatch '^\d+\.\d+\.\d+$') {
@@ -53,12 +48,27 @@ $tempArchive = Join-Path $tempDir $archiveName
 try {
     New-Item -ItemType Directory -Path $stageDir -Force | Out-Null
 
-    Get-ChildItem -LiteralPath $releaseDir -File | Where-Object {
-        $_.Name -in @('meme_searcher.exe', 'native_assets.json') -or $_.Extension -eq '.dll'
-    } | ForEach-Object {
-        Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $stageDir $_.Name) -Force
+    # Flutter can leave test files in the output directory. CMake records the
+    # runtime files it actually installed; the runner is built in place.
+    $releasePrefix = [IO.Path]::GetFullPath($releaseDir) + [IO.Path]::DirectorySeparatorChar
+    $manifest = Join-Path $repoRoot 'build/windows/x64/install_manifest.txt'
+    $installed = Get-Content -LiteralPath $manifest | ForEach-Object { [IO.Path]::GetFullPath($_) } |
+        Where-Object { $_.StartsWith($releasePrefix, [StringComparison]::OrdinalIgnoreCase) }
+    foreach ($source in (@($installed) + $exePath | Sort-Object -Unique)) {
+        $relative = $source.Substring($releasePrefix.Length)
+        $rootCopy = Join-Path $repoRoot $relative
+        if ((Get-FileHash -LiteralPath $rootCopy).Hash -ne (Get-FileHash -LiteralPath $source).Hash) {
+            throw "Project-root copy differs from the release build: $relative"
+        }
+        $destination = Join-Path $stageDir $relative
+        [IO.Directory]::CreateDirectory((Split-Path -Parent $destination)) | Out-Null
+        Copy-Item -LiteralPath $source -Destination $destination
     }
-    Copy-Item -LiteralPath (Join-Path $releaseDir 'data') -Destination (Join-Path $stageDir 'data') -Recurse -Force
+    foreach ($required in @('flutter_windows.dll', 'data/app.so', 'data/icudtl.dat', 'data/flutter_assets/AssetManifest.bin')) {
+        if (-not (Test-Path -LiteralPath (Join-Path $stageDir $required) -PathType Leaf)) {
+            throw "Missing $required in release manifest. Run 'flutter build windows --release' first."
+        }
+    }
     Copy-Item -LiteralPath (Join-Path $repoRoot 'README.md') -Destination (Join-Path $stageDir 'README.md') -Force
     Copy-Item -LiteralPath (Join-Path $repoRoot 'THIRD_PARTY_NOTICES.md') -Destination (Join-Path $stageDir 'THIRD_PARTY_NOTICES.md') -Force
 
