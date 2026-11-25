@@ -201,8 +201,9 @@ class SerpApiMcpCollector {
     final preview = safePublicUrl(_string(item['thumbnail']));
     final source = safePublicUrl(_string(item['link']));
     final title = cleanText(_string(item['title'])) ?? 'Google 이미지';
-    final format = (_string(item['format']) ?? _formatFromUrl(original))
-        ?.toUpperCase();
+    final format =
+        knownImageFormat(_string(item['format'])) ??
+        imageFormatFromUrl(original);
     return MemeAsset(
       id: 'web-google-${original.hashCode}',
       title: title,
@@ -256,8 +257,9 @@ class NaverImageCollector {
           cleanText(_string(item['title'])) ??
           cleanText(_string(item['writerTitle'])) ??
           '웹 이미지';
-      final hint = (_string(item['iconInfo']) ?? _formatFromUrl(original))
-          ?.toUpperCase();
+      final hint =
+          knownImageFormat(_string(item['iconInfo'])) ??
+          imageFormatFromUrl(original);
       final rank = ++providerRank;
       final asset = MemeAsset(
         id: 'web-naver-${original.hashCode}',
@@ -391,11 +393,6 @@ String? cleanText(String? value) {
 }
 
 String? _string(dynamic value) => value is String ? value : null;
-
-String? _formatFromUrl(String value) {
-  final path = Uri.tryParse(value)?.path.toLowerCase() ?? '';
-  return RegExp(r'\.([a-z0-9]{2,5})$').firstMatch(path)?.group(1);
-}
 
 String _countryFor(QueryPlan plan) =>
     RegExp(r'[가-힣]').hasMatch(plan.words) ? 'kr' : 'us';

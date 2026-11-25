@@ -13,6 +13,10 @@ abstract interface class AppServices {
 
   Future<MediaFile> loadMedia(MemeAsset asset, {bool preferCached = true});
 
+  Future<MediaFile> loadPreviewMedia(MemeAsset asset);
+
+  Future<String?> probeWebFormat(MemeAsset asset);
+
   Future<MemeAsset> saveToLibrary(
     MediaFile file, {
     String? title,
@@ -31,6 +35,8 @@ abstract interface class AppServices {
   Future<String?> readSerpApiKey();
 
   Future<void> writeSerpApiKey(String key);
+
+  Future<void> deferSerpApiSetup();
 
   Future<void> deleteSerpApiKey();
 }

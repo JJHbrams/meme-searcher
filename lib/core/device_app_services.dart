@@ -15,6 +15,7 @@ import 'query_plan.dart';
 import 'ranking_service.dart';
 import 'media_inspector.dart';
 import 'safe_media_downloader.dart';
+import 'serpapi_account.dart';
 import 'web_collectors.dart';
 import 'visual_matcher.dart';
 
@@ -27,10 +28,12 @@ class DeviceAppServices implements AppServices {
     AssetBundle? bundle,
     FlutterSecureStorage? secureStorage,
     LocalLibraryStore? store,
+    Future<void> Function(String)? verifyKey,
     Future<List<MemeAsset>> Function(QueryPlan, String)? googleSearch,
     Future<List<MemeAsset>> Function(QueryPlan)? naverSearch,
   }) : _bundle = bundle ?? rootBundle,
        _secureStorage = secureStorage ?? const FlutterSecureStorage(),
+       _verifyKey = verifyKey ?? verifySerpApiKey,
        _store = store,
        _googleSearch = googleSearch ?? SerpApiMcpCollector().call,
        _naverSearch = naverSearch ?? NaverImageCollector().call;
@@ -38,11 +41,18 @@ class DeviceAppServices implements AppServices {
   final MemeCatalog catalog;
   final AssetBundle _bundle;
   final FlutterSecureStorage _secureStorage;
+  final Future<void> Function(String) _verifyKey;
   LocalLibraryStore? _store;
   final Future<List<MemeAsset>> Function(QueryPlan, String)? _googleSearch;
   final Future<List<MemeAsset>> Function(QueryPlan)? _naverSearch;
   final RankingService _ranking = const RankingService();
   final SafeMediaDownloader _downloader = SafeMediaDownloader();
+  final Map<String, Future<String?>> _formatProbes = {};
+  final List<Future<void>> _formatProbeSlots = List.filled(
+    3,
+    Future<void>.value(),
+  );
+  int _nextFormatSlot = 0;
   final Map<String, _CachedSearch> _cache = {};
   VisualMatcher? _visualMatcher;
   bool _initialized = false;
@@ -313,6 +323,43 @@ class DeviceAppServices implements AppServices {
     final url = asset.originalUrl;
     if (url == null || url.isEmpty)
       throw StateError('Media has no original URL.');
+    return _loadWebImage(asset, url);
+  }
+
+  @override
+  Future<String?> probeWebFormat(MemeAsset asset) {
+    final url = asset.originalUrl;
+    if (!asset.isWeb || url == null || asset.displayFormat != null) {
+      return Future.value(asset.displayFormat);
+    }
+    final cached = _formatProbes[url];
+    if (cached != null) return cached;
+    final slot = _nextFormatSlot++ % _formatProbeSlots.length;
+    final probe = _formatProbeSlots[slot].then((_) async {
+      try {
+        return MediaInspector.signatureFormat(
+          await _downloader.readPrefix(url),
+        );
+      } catch (_) {
+        return null;
+      }
+    });
+    _formatProbeSlots[slot] = probe.then<void>((_) {});
+    if (_formatProbes.length >= 128)
+      _formatProbes.remove(_formatProbes.keys.first);
+    return _formatProbes[url] = probe;
+  }
+
+  @override
+  Future<MediaFile> loadPreviewMedia(MemeAsset asset) {
+    final url = asset.previewUrl;
+    if (!asset.isWeb || url == null || url == asset.originalUrl) {
+      throw StateError('No separate web preview.');
+    }
+    return _loadWebImage(asset, url);
+  }
+
+  Future<MediaFile> _loadWebImage(MemeAsset asset, String url) async {
     final bytes = await _downloader.download(url);
     final inspection = await MediaInspector.inspectMotion(bytes);
     if (inspection.format == 'UNKNOWN' ||
@@ -325,6 +372,7 @@ class DeviceAppServices implements AppServices {
     final cached = asset.copyWith(
       filePath: path,
       format: inspection.format,
+      mime: 'image/${inspection.format.toLowerCase()}',
       width: inspection.width,
       height: inspection.height,
       frames: inspection.frames,
@@ -380,6 +428,7 @@ class DeviceAppServices implements AppServices {
   @override
   Future<void> markRecent(String assetId) async {
     await initialize();
+    if (_store!.byId(assetId) == null) return;
     await _store!.recent(assetId);
     _cache.clear();
   }
@@ -390,6 +439,8 @@ class DeviceAppServices implements AppServices {
     final environment = Platform.environment['SERPAPI_API_KEY'];
     return SettingsState(
       serpApiConfigured: (secure ?? environment ?? '').isNotEmpty,
+      serpApiSetupDeferred:
+          await _secureStorage.read(key: _setupDeferredName) == '1',
       serpApiKeySource: (secure ?? '').isNotEmpty
           ? 'app'
           : (environment ?? '').isNotEmpty
@@ -399,18 +450,26 @@ class DeviceAppServices implements AppServices {
   }
 
   static const _serpKeyName = 'serpapi_api_key';
+  static const _setupDeferredName = 'serpapi_setup_deferred';
   @override
   Future<String?> readSerpApiKey() async =>
       await _secureStorage.read(key: _serpKeyName) ??
       Platform.environment['SERPAPI_API_KEY'];
   @override
   Future<void> writeSerpApiKey(String key) async {
-    await _secureStorage.write(key: _serpKeyName, value: key.trim());
+    final trimmed = key.trim();
+    await _verifyKey(trimmed);
+    await _secureStorage.write(key: _serpKeyName, value: trimmed);
     _cache.clear();
   }
 
   @override
+  Future<void> deferSerpApiSetup() =>
+      _secureStorage.write(key: _setupDeferredName, value: '1');
+
+  @override
   Future<void> deleteSerpApiKey() async {
+    await deferSerpApiSetup();
     await _secureStorage.delete(key: _serpKeyName);
     _cache.clear();
   }

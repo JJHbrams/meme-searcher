@@ -8,7 +8,11 @@ import 'dart:typed_data';
 /// resolving to a private address; callers never receive partial files.
 class SafeMediaDownloader {
   static const maxBytes = 8 * 1024 * 1024;
-  Future<Uint8List> download(String value) async {
+  Future<Uint8List> download(String value) => _read(value);
+
+  Future<Uint8List> readPrefix(String value) => _read(value, prefixLength: 64);
+
+  Future<Uint8List> _read(String value, {int? prefixLength}) async {
     var uri = Uri.parse(value);
     if (uri.userInfo.isNotEmpty)
       throw const HttpException('URL userinfo is not allowed');
@@ -34,28 +38,19 @@ class SafeMediaDownloader {
         if (uri.scheme != 'https' && uri.scheme != 'http' ||
             uri.userInfo.isNotEmpty)
           throw const HttpException('Unsupported media URL');
-        pins[uri.host] = await _resolvePublic(uri.host);
+        pins[uri.host] = await _resolvePublic(uri.host)
+            .timeout(const Duration(seconds: 12));
         final request = await client.getUrl(uri)
           ..followRedirects = false;
         request.headers.set(HttpHeaders.acceptHeader, 'image/*');
         request.headers.set(HttpHeaders.acceptEncodingHeader, 'identity');
-        if (_isDcconOriginal(uri)) {
+        if (prefixLength != null) {
           request.headers.set(
-            HttpHeaders.refererHeader,
-            'https://dccon.dcinside.com/',
-          );
-          request.headers.set(
-            HttpHeaders.userAgentHeader,
-            'Mozilla/5.0 (MemeSearcher/0.1)',
+            HttpHeaders.rangeHeader,
+            'bytes=0-${prefixLength - 1}',
           );
         }
-        request.headers.set(HttpHeaders.acceptHeader, 'image/*');
-        request.headers.set(HttpHeaders.acceptEncodingHeader, 'identity');
-        if (RegExp(
-              r'^dcimg\d+\.dcinside\.com$',
-              caseSensitive: false,
-            ).hasMatch(uri.host) &&
-            uri.path == '/dccon.php') {
+        if (_isDcconOriginal(uri)) {
           request.headers.set(
             HttpHeaders.refererHeader,
             'https://dccon.dcinside.com/',
@@ -76,22 +71,28 @@ class SafeMediaDownloader {
           if (target == null)
             throw const HttpException('Missing redirect target');
           uri = uri.resolve(target);
-          await response.drain();
+          await response.drain<void>().timeout(const Duration(seconds: 12));
           continue;
         }
         if (response.statusCode < 200 || response.statusCode >= 300)
           throw HttpException('Media HTTP ${response.statusCode}');
         final length = response.contentLength;
-        if (length > maxBytes) throw const HttpException('Media too large');
-        final data = <int>[];
+        if (prefixLength == null && length > maxBytes)
+          throw const HttpException('Media too large');
+        final data = BytesBuilder(copy: false);
         await for (final chunk in response.timeout(
           const Duration(seconds: 20),
         )) {
-          data.addAll(chunk);
-          if (data.length > maxBytes)
+          if (prefixLength != null &&
+              chunk.length >= prefixLength - data.length) {
+            data.add(chunk.sublist(0, prefixLength - data.length));
+            break;
+          }
+          if (data.length + chunk.length > maxBytes)
             throw const HttpException('Media too large');
+          data.add(chunk);
         }
-        return Uint8List.fromList(data);
+        return data.takeBytes();
       }
       throw const HttpException('Too many redirects');
     } finally {

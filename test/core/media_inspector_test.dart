@@ -3,8 +3,33 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:meme_searcher/core/media_inspector.dart';
+import 'package:meme_searcher/core/models.dart';
 
 void main() {
+  test(
+    'uses image formats in provider hints, CDN URLs and signature prefixes',
+    () {
+      expect(knownImageFormat('image/jpeg; charset=binary'), 'JPEG');
+      expect(
+        imageFormatFromUrl('https://cdn.example/img?id=7&format=gif'),
+        'GIF',
+      );
+      expect(imageFormatFromUrl('https://cdn.example/a.JPG:large'), 'JPEG');
+      expect(imageFormatFromUrl('https://cdn.example/view.php?id=123'), isNull);
+      expect(
+        MediaInspector.signatureFormat(
+          Uint8List.fromList([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13]),
+        ),
+        'PNG',
+      );
+      expect(
+        MediaInspector.signatureFormat(
+          Uint8List.fromList('<html>broken image</html>'.codeUnits),
+        ),
+        isNull,
+      );
+    },
+  );
   test('short GIF signature does not throw', () {
     expect(
       MediaInspector.inspect(Uint8List.fromList('GIF89a'.codeUnits)).format,

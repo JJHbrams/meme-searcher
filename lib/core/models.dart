@@ -1,5 +1,32 @@
 import 'dart:typed_data';
 
+String? knownImageFormat(String? value) {
+  final token = value
+      ?.trim()
+      .toUpperCase()
+      .split(';')
+      .first
+      .replaceFirst('IMAGE/', '');
+  return switch (token) {
+    'JPG' || 'JPEG' || 'PJPEG' => 'JPEG',
+    'GIF' || 'PNG' || 'WEBP' || 'AVIF' || 'BMP' || 'TIFF' || 'HEIC' => token,
+    'SVG' || 'SVG+XML' => 'SVG',
+    _ => null,
+  };
+}
+
+String? imageFormatFromUrl(String? value) {
+  final uri = Uri.tryParse(value ?? '');
+  if (uri == null) return null;
+  for (final field in ['format', 'fm', 'mime']) {
+    final format = knownImageFormat(uri.queryParameters[field]);
+    if (format != null) return format;
+  }
+  final ext = RegExp(r'\.([a-zA-Z0-9]+)(?::[a-zA-Z0-9]+)?$')
+      .firstMatch(uri.path);
+  return knownImageFormat(ext?.group(1));
+}
+
 enum SearchScope { library, web, all }
 
 enum MediaFilter { all, gif, staticImage }
@@ -122,6 +149,10 @@ class MemeAsset {
   final DateTime? addedAt;
 
   bool get isGif => (format ?? formatHint ?? '').toUpperCase() == 'GIF';
+  String? get displayFormat =>
+      knownImageFormat(format) ??
+      knownImageFormat(formatHint) ??
+      imageFormatFromUrl(originalUrl);
   bool get isWeb => origin == 'web';
   String get primaryEngine => engines.isEmpty ? '' : engines.first;
 
@@ -373,8 +404,10 @@ class SettingsState {
   const SettingsState({
     required this.serpApiConfigured,
     required this.serpApiKeySource,
+    this.serpApiSetupDeferred = false,
   });
 
   final bool serpApiConfigured;
   final String serpApiKeySource;
+  final bool serpApiSetupDeferred;
 }

@@ -6,10 +6,14 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:image/image.dart' as image;
 import 'package:integration_test/integration_test.dart';
+import 'package:meme_searcher/core/device_app_services.dart';
+import 'package:meme_searcher/core/local_library_store.dart';
 import 'package:meme_searcher/core/models.dart';
 import 'package:meme_searcher/platform/media_actions.dart';
 
 const _headlessEnvironment = 'MEME_SEARCHER_HEADLESS_TEST';
+const _liveMediaEnvironment = 'MEME_SEARCHER_LIVE_MEDIA_TEST';
+const _liveProviderEnvironment = 'MEME_SEARCHER_LIVE_PROVIDER_COPY_TEST';
 const _channel = MethodChannel(MediaActions.channelName);
 
 void main() {
@@ -17,6 +21,10 @@ void main() {
 
   final headless =
       Platform.isWindows && Platform.environment[_headlessEnvironment] == '1';
+  final liveMedia =
+      headless && Platform.environment[_liveMediaEnvironment] == '1';
+  final liveProvider =
+      liveMedia && Platform.environment[_liveProviderEnvironment] == '1';
 
   testWidgets('copies GIF original as CF_HDROP with unchanged bytes', (
     tester,
@@ -45,6 +53,7 @@ void main() {
     final clipboard = await _clipboardState();
     expect(clipboard['opened'], isTrue);
     expect(clipboard['hasFileDrop'], isTrue);
+    expect(clipboard['hasDib'], isFalse);
     final copiedPath = clipboard['filePath'] as String?;
     expect(copiedPath, isNotNull);
     expect(_samePath(copiedPath!, fixture.path), isTrue);
@@ -95,6 +104,125 @@ void main() {
     await storage.delete(key: key);
     expect(await storage.read(key: key), isNull);
   }, skip: !headless);
+
+  testWidgets('copies extensionless web PNG through DeviceAppServices', (
+    tester,
+  ) async {
+    await _withTemporaryServices((services) async {
+      final media = await services.loadMedia(
+        const MemeAsset(
+          id: 'live-extensionless-png',
+          title: 'Live extensionless PNG',
+          origin: 'web',
+          originalUrl: 'https://www.w3.org/Icons/valid-html401',
+        ),
+      );
+      expect(media.asset.format, 'PNG');
+      expect((await MediaActions().copy(media)).completed, isTrue);
+
+      final clipboard = await _clipboardState();
+      expect(clipboard['opened'], isTrue);
+      expect(clipboard['hasDib'], isTrue);
+      expect(clipboard['hasFileDrop'], isTrue);
+      // ignore: avoid_print
+      print(
+        'Live media copy: format=${media.asset.format}; '
+        'hasDib=${clipboard['hasDib']}; '
+        'hasFileDrop=${clipboard['hasFileDrop']}',
+      );
+    });
+  }, skip: !liveMedia);
+
+  testWidgets(
+    'copies live GIF original without CF_DIB through DeviceAppServices',
+    (tester) async {
+      await _withTemporaryServices((services) async {
+        final media = await services.loadMedia(
+          const MemeAsset(
+            id: 'live-rotating-earth-gif',
+            title: 'Live rotating earth GIF',
+            origin: 'web',
+            originalUrl: 'https://upload.wikimedia.org/wikipedia/commons/2/2c/Rotating_earth_%28large%29.gif',
+          ),
+        );
+        expect(media.asset.format, 'GIF');
+        expect((await MediaActions().copy(media)).completed, isTrue);
+
+        final clipboard = await _clipboardState();
+        expect(clipboard['opened'], isTrue);
+        expect(clipboard['hasDib'], isFalse);
+        expect(clipboard['hasFileDrop'], isTrue);
+        // ignore: avoid_print
+        print(
+          'Live media copy: format=${media.asset.format}; '
+          'hasDib=${clipboard['hasDib']}; '
+          'hasFileDrop=${clipboard['hasFileDrop']}',
+        );
+      });
+    },
+    skip: !liveMedia,
+  );
+
+  testWidgets(
+    'copies one configured live Google result through DeviceAppServices',
+    (tester) async {
+      await _withTemporaryServices((services) async {
+        final settings = await services.settings();
+        if (!settings.serpApiConfigured) {
+          markTestSkipped('SerpApi is not configured in this Windows profile.');
+          return;
+        }
+
+        final response = await services.search(
+          const SearchRequest(query: '고양이', scope: SearchScope.web),
+        );
+        final google = response.attempts.firstWhere(
+          (attempt) => attempt.engine == 'google',
+        );
+        expect(google.status, 'ok');
+        final rows = response.assets.where(
+          (candidate) => candidate.engines.contains('google'),
+        ).toList();
+        final sample = rows.take(8).toList();
+        final formats = await Future.wait(sample.map(services.probeWebFormat));
+        final labelled = formats.whereType<String>().length;
+        expect(labelled, greaterThan(0));
+        final media = await services.loadMedia(rows.first);
+        expect(media.asset.verified, isTrue);
+        expect((await MediaActions().copy(media)).completed, isTrue);
+
+        final clipboard = await _clipboardState();
+        expect(clipboard['opened'], isTrue);
+        expect(clipboard['hasFileDrop'], isTrue);
+        expect(clipboard['hasDib'], media.asset.isGif ? isFalse : isTrue);
+        // ignore: avoid_print
+        print(
+          'Live provider copy: googleResults=${google.count}; '
+          'knownLabels=$labelled/${sample.length}; '
+          'format=${media.asset.format}; hasDib=${clipboard['hasDib']}; '
+          'hasFileDrop=${clipboard['hasFileDrop']}',
+        );
+      });
+    },
+    skip: !liveProvider,
+  );
+}
+
+Future<void> _withTemporaryServices(
+  Future<void> Function(DeviceAppServices services) action,
+) async {
+  final directory = await Directory.systemTemp.createTemp(
+    'meme-searcher-live-native-',
+  );
+  try {
+    final services = DeviceAppServices(
+      store: await LocalLibraryStore.open(directory: directory),
+    );
+    await services.initialize();
+    await action(services);
+  } finally {
+    if (await directory.exists()) await directory.delete(recursive: true);
+  }
 }
 
 Future<({Uint8List bytes, String path})> _readFixture(String name) async {

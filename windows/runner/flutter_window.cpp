@@ -41,6 +41,7 @@ std::wstring Utf16FromUtf8(const std::string& value) {
   return result;
 }
 
+
 const flutter::EncodableValue* FindValue(const flutter::EncodableMap& values,
                                          const char* key) {
   const auto found = values.find(flutter::EncodableValue(key));
@@ -232,9 +233,9 @@ bool IsHeadlessTestMode() {
   return length == 1 && value[0] == L'1';
 }
 
-flutter::EncodableMap InspectClipboardForHeadlessTest() {
+flutter::EncodableMap InspectClipboardForHeadlessTest(HWND owner) {
   flutter::EncodableMap details;
-  if (!OpenClipboard(nullptr)) {
+  if (!OpenClipboard(owner)) {
     details[flutter::EncodableValue("opened")] = flutter::EncodableValue(false);
     return details;
   }
@@ -264,28 +265,37 @@ flutter::EncodableMap InspectClipboardForHeadlessTest() {
   return details;
 }
 
-bool CopyToClipboard(const std::wstring& path, bool is_gif,
+bool CopyToClipboard(HWND owner, const std::wstring& path, bool is_gif,
                      const std::vector<uint8_t>* fallback_png) {
+  if (!IsWindow(owner)) return false;
   HGLOBAL files = CreateDropFiles(path);
-  if (!files || !OpenClipboard(nullptr)) {
+  HGLOBAL dib = nullptr;
+  if (!is_gif) {
+    dib = CreateStaticImageDib(path);
+    if (!dib && fallback_png) dib = CreateStaticImageDibFromPng(*fallback_png);
+  }
+  if ((is_gif ? !files : !dib) || !OpenClipboard(owner)) {
+    if (dib) GlobalFree(dib);
     if (files) GlobalFree(files);
     return false;
   }
-  EmptyClipboard();
-  if (!SetClipboardData(CF_HDROP, files)) {
-    GlobalFree(files);
-    CloseClipboard();
-    return false;
-  }
-  if (!is_gif) {
-    HGLOBAL dib = CreateStaticImageDib(path);
-    if (!dib && fallback_png) dib = CreateStaticImageDibFromPng(*fallback_png);
-    if (dib && !SetClipboardData(CF_DIB, dib)) {
-      GlobalFree(dib);
+  bool copied = false;
+  if (EmptyClipboard()) {
+    // Static images should paste as pixels. A GIF needs the original file
+    // because the bitmap clipboard format can only represent one frame.
+    if (dib && SetClipboardData(CF_DIB, dib)) {
+      dib = nullptr;
+      copied = true;
+    }
+    if ((copied || is_gif) && files && SetClipboardData(CF_HDROP, files)) {
+      files = nullptr;
+      copied = true;
     }
   }
   CloseClipboard();
-  return true;
+  if (dib) GlobalFree(dib);
+  if (files) GlobalFree(files);
+  return copied;
 }
 
 bool SaveWithPicker(const std::wstring& source, const std::wstring& suggested_name) {
@@ -336,13 +346,16 @@ bool FlutterWindow::OnCreate() {
           flutter_controller_->engine()->messenger(), kMediaActionsChannel,
           &flutter::StandardMethodCodec::GetInstance());
   media_actions_channel_->SetMethodCallHandler(
-      [](const auto& call, auto result) {
+      [this](const auto& call, auto result) {
+        const HWND owner = flutter_controller_ && flutter_controller_->view()
+                               ? flutter_controller_->view()->GetNativeWindow()
+                               : nullptr;
         if (call.method_name() == "debugClipboardState") {
           if (!IsHeadlessTestMode()) {
             result->Error("test_only", "Clipboard inspection is available only to headless tests.");
             return;
           }
-          result->Success(InspectClipboardForHeadlessTest());
+          result->Success(InspectClipboardForHeadlessTest(owner));
           return;
         }
         const auto* arguments = call.arguments();
@@ -358,7 +371,7 @@ bool FlutterWindow::OnCreate() {
           return;
         }
         if (call.method_name() == "copy") {
-          if (!CopyToClipboard(path, IsGifMimeType(StringArgument(values, "mime"), path),
+          if (!CopyToClipboard(owner, path, IsGifMimeType(StringArgument(values, "mime"), path),
                                BytesArgument(values, "clipboardPng"))) {
             result->Error("clipboard_failed", "Could not copy the original file.");
             return;

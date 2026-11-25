@@ -78,16 +78,20 @@ class MediaActions {
     try {
       final arguments = <String, Object?>{
         'path': file.path,
-        'mime': file.asset.mime ?? _mimeFromAsset(file.asset),
+        'mime': _mimeForFile(file),
         'name': _suggestedName(file),
       };
       if (action == 'copy' && !file.asset.isGif) {
-        final decoded = image.decodeImage(file.bytes);
-        if (decoded != null) {
-          arguments['clipboardPng'] = Uint8List.fromList(
-            image.encodePng(decoded),
-          );
-        }
+        // This is optional recovery data for the native WIC path. Never let a
+        // Dart decoder failure prevent Windows from trying the original file.
+        try {
+          final decoded = image.decodeImage(file.bytes);
+          if (decoded != null) {
+            arguments['clipboardPng'] = Uint8List.fromList(
+              image.encodePng(decoded),
+            );
+          }
+        } catch (_) {}
       }
       final result = await _channel.invokeMethod<Object?>(action, arguments);
       return MediaActionResult.fromPlatform(result);
@@ -109,13 +113,57 @@ class MediaActions {
     if (basename.isNotEmpty && basename.contains('.')) {
       return basename;
     }
-    final suffix = file.asset.isGif ? 'gif' : 'png';
+    final suffix = switch (_mimeForFile(file)) {
+      'image/jpeg' => 'jpg',
+      'image/png' => 'png',
+      'image/webp' => 'webp',
+      'image/gif' => 'gif',
+      _ => 'bin',
+    };
     final sanitized = file.asset.title
         .replaceAll(RegExp(r'[<>:"/\\|?*]'), '_')
         .trim();
     return '${sanitized.isEmpty ? 'meme' : sanitized}.$suffix';
   }
 
-  static String _mimeFromAsset(MemeAsset asset) =>
-      asset.isGif ? 'image/gif' : 'image/png';
+  static String _mimeForFile(MediaFile file) {
+    final format = (file.asset.format ?? '').trim().toUpperCase();
+    if (file.asset.verified) {
+      final verifiedMime = _mimeForFormat(format);
+      if (verifiedMime != null) return verifiedMime;
+    }
+
+    final basename = file.path.split(RegExp(r'[\\/]')).last;
+    final dot = basename.lastIndexOf('.');
+    final fromExtension = dot < 0
+        ? null
+        : _mimeForFormat(basename.substring(dot + 1).toUpperCase());
+    if (fromExtension != null) return fromExtension;
+
+    final fromFormat = _mimeForFormat(format);
+    if (fromFormat != null) return fromFormat;
+    final fromHint = _mimeForFormat(
+      (file.asset.formatHint ?? '').trim().toUpperCase(),
+    );
+    if (fromHint != null) return fromHint;
+
+    const supported = <String>{
+      'image/jpeg',
+      'image/png',
+      'image/webp',
+      'image/gif',
+    };
+    final declared = file.asset.mime?.toLowerCase();
+    return supported.contains(declared)
+        ? declared!
+        : 'application/octet-stream';
+  }
+
+  static String? _mimeForFormat(String format) => switch (format) {
+    'JPG' || 'JPEG' => 'image/jpeg',
+    'PNG' => 'image/png',
+    'WEBP' => 'image/webp',
+    'GIF' => 'image/gif',
+    _ => null,
+  };
 }

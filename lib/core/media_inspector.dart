@@ -30,16 +30,26 @@ class MediaInspector {
   static const maxPixels = 4000000;
   static const maxAnimationPixels = 64000000;
 
+  static String? signatureFormat(Uint8List bytes) {
+    if (bytes.length < 12) return null;
+    final start = String.fromCharCodes(bytes, 0, 6);
+    if (start == 'GIF87a' || start == 'GIF89a') return 'GIF';
+    if (start.startsWith('\x89PNG\r\n') && bytes[6] == 26 && bytes[7] == 10)
+      return 'PNG';
+    if (bytes[0] == 0xff && bytes[1] == 0xd8 && bytes[2] == 0xff) return 'JPEG';
+    if (start.startsWith('RIFF') &&
+        String.fromCharCodes(bytes, 8, 12) == 'WEBP')
+      return 'WEBP';
+    if (String.fromCharCodes(bytes, 4, 8) == 'ftyp' &&
+        {'avif', 'avis'}.contains(String.fromCharCodes(bytes, 8, 12)))
+      return 'AVIF';
+    return null;
+  }
+
   static MediaInspection inspect(Uint8List bytes) {
-    if (bytes.length >= 13 &&
-        (String.fromCharCodes(bytes.sublist(0, 6)) == 'GIF87a' ||
-            String.fromCharCodes(bytes.sublist(0, 6)) == 'GIF89a'))
-      return _gif(bytes);
-    if (bytes.length >= 24 &&
-        bytes[0] == 0x89 &&
-        bytes[1] == 0x50 &&
-        bytes[2] == 0x4e &&
-        bytes[3] == 0x47) {
+    final format = signatureFormat(bytes);
+    if (bytes.length >= 13 && format == 'GIF') return _gif(bytes);
+    if (bytes.length >= 24 && format == 'PNG') {
       final width = _u32(bytes, 16);
       final height = _u32(bytes, 20);
       return MediaInspection(
@@ -52,9 +62,7 @@ class MediaInspector {
         reason: _validCanvas(width, height) ? 'static' : 'canvas-too-large',
       );
     }
-    if (bytes.length >= 12 &&
-        String.fromCharCodes(bytes.sublist(0, 4)) == 'RIFF' &&
-        String.fromCharCodes(bytes.sublist(8, 12)) == 'WEBP') {
+    if (format == 'WEBP') {
       final webp = _webp(bytes);
       final animated = webp.$3 > 1;
       return MediaInspection(

@@ -72,6 +72,30 @@ void main() {
   });
 
   test(
+    'setup persists deferral and keeps the old key on failed verification',
+    () async {
+      final setup = DeviceAppServices(
+        store: store,
+        verifyKey: (key) async {
+          if (key != 'test-valid') throw StateError('Rejected synthetic key');
+        },
+      );
+      expect((await setup.settings()).serpApiSetupDeferred, isFalse);
+      await setup.deferSerpApiSetup();
+      await setup.writeSerpApiKey(' test-valid ');
+      await expectLater(
+        setup.writeSerpApiKey('test-invalid'),
+        throwsStateError,
+      );
+      final restarted = DeviceAppServices(store: store);
+      expect(await restarted.readSerpApiKey(), 'test-valid');
+      final settings = await restarted.settings();
+      expect(settings.serpApiKeySource, 'app');
+      expect(settings.serpApiSetupDeferred, isTrue);
+    },
+  );
+
+  test(
     'favorites survive a new store instance and saved GIF keeps bytes',
     () async {
       final approved = (await services.library(filter: MediaFilter.gif)).first;

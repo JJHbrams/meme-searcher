@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -7,6 +8,7 @@ import '../../core/app_services.dart';
 import '../../core/models.dart';
 import '../../platform/media_actions.dart';
 import '../app_theme.dart';
+import 'serpapi_settings_dialog.dart';
 import '../widgets/source_badge.dart';
 import '../widgets/tag_chip.dart';
 
@@ -35,6 +37,7 @@ class _SearchScreenState extends State<SearchScreen> {
   bool _similar = false;
   bool _loading = true;
   bool _hasSearched = false;
+  bool _openingSettings = false;
   String? _error;
   int _searchSerial = 0;
   _NavMode _navMode = _NavMode.all;
@@ -57,6 +60,7 @@ class _SearchScreenState extends State<SearchScreen> {
     try {
       await widget.services.initialize();
       await _search(initial: true);
+      if (mounted) await _openSettings(firstRun: true);
     } catch (_) {
       if (mounted) {
         setState(() {
@@ -150,8 +154,8 @@ class _SearchScreenState extends State<SearchScreen> {
     return labels.join(' · ');
   }
 
-  String _mediaInfo(MemeAsset asset) {
-    final format = asset.format ?? asset.formatHint ?? '형식 미확인';
+  static String _mediaInfo(MemeAsset asset) {
+    final format = asset.displayFormat;
     final size = asset.width != null && asset.height != null
         ? '${asset.width}×${asset.height}'
         : '크기 미확인';
@@ -162,7 +166,7 @@ class _SearchScreenState extends State<SearchScreen> {
         : asset.isGif && asset.frames == 1
         ? ' · 정지(1프레임)'
         : '';
-    return '$format · $size$movement';
+    return [?format, '$size$movement'].join(' · ');
   }
 
   Future<void> _openAsset(MemeAsset asset) async {
@@ -176,7 +180,12 @@ class _SearchScreenState extends State<SearchScreen> {
           services: widget.services,
           actions: widget.actions,
           source: _source(asset),
-          mediaInfo: _mediaInfo(asset),
+          onInspected: (inspected) {
+            final index = _assets.indexWhere((a) => a.id == asset.id);
+            if (mounted && index >= 0) {
+              setState(() => _assets = [..._assets]..[index] = inspected);
+            }
+          },
           onSaved: () async {
             await _search();
           },
@@ -187,11 +196,33 @@ class _SearchScreenState extends State<SearchScreen> {
     }
   }
 
-  Future<void> _openSettings() async {
-    await showDialog<void>(
-      context: context,
-      builder: (context) => _SettingsDialog(services: widget.services),
-    );
+  Future<void> _openSettings({bool firstRun = false}) async {
+    if (_openingSettings) return;
+    _openingSettings = true;
+    try {
+      final settings = await widget.services.settings();
+      if (!mounted ||
+          (firstRun &&
+              (settings.serpApiConfigured || settings.serpApiSetupDeferred))) {
+        return;
+      }
+      final connected = await showDialog<bool>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => SerpApiSettingsDialog(
+          services: widget.services,
+          settings: settings,
+          firstRun: firstRun,
+        ),
+      );
+      if (connected == true && mounted) {
+        _show('SerpApi 키를 확인하고 저장했어요. 웹 또는 모두에서 검색해 보세요.');
+      }
+    } catch (_) {
+      if (mounted) _show('검색 설정을 읽지 못했어요. 설정에서 다시 시도해 주세요.');
+    } finally {
+      _openingSettings = false;
+    }
   }
 
   @override
@@ -480,12 +511,27 @@ class _SearchScreenState extends State<SearchScreen> {
           childAspectRatio: .74,
         ),
         itemCount: _assets.length,
-        itemBuilder: (context, index) => _MemeCard(
-          asset: _assets[index],
-          source: _source(_assets[index]),
-          mediaInfo: _mediaInfo(_assets[index]),
-          onTap: () => _openAsset(_assets[index]),
-        ),
+        itemBuilder: (context, index) {
+          final asset = _assets[index];
+          Widget card(MemeAsset item, {bool probing = false}) => _MemeCard(
+            asset: item,
+            source: _source(item),
+            mediaInfo: _mediaInfo(item),
+            probing: probing,
+            onTap: () => _openAsset(item),
+          );
+          if (!asset.isWeb || asset.displayFormat != null) return card(asset);
+          return FutureBuilder<String?>(
+            key: ValueKey(asset.originalUrl ?? asset.id),
+            future: widget.services.probeWebFormat(asset),
+            builder: (_, snapshot) => card(
+              snapshot.hasData
+                  ? asset.copyWith(formatHint: snapshot.data)
+                  : asset,
+              probing: snapshot.connectionState == ConnectionState.waiting,
+            ),
+          );
+        },
       ),
     );
   }
@@ -571,20 +617,16 @@ class _SideRail extends StatelessWidget {
             padding: EdgeInsets.fromLTRB(8, 12, 8, 30),
             child: Row(
               children: [
-                CircleAvatar(
-                  backgroundColor: MemeTheme.accent,
-                  child: Text(
-                    'M',
-                    style: TextStyle(
-                      color: MemeTheme.accentInk,
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
+                Image(
+                  image: AssetImage('assets/app-icon.png'),
+                  width: 40,
+                  height: 40,
+                  excludeFromSemantics: true,
                 ),
                 SizedBox(width: 10),
                 Expanded(
                   child: Text(
-                    'Meme\\nSearcher',
+                    'Meme\nSearcher',
                     style: TextStyle(fontWeight: FontWeight.w800, height: 1),
                   ),
                 ),
@@ -627,12 +669,14 @@ class _MemeCard extends StatelessWidget {
     required this.asset,
     required this.source,
     required this.mediaInfo,
+    required this.probing,
     required this.onTap,
   });
 
   final MemeAsset asset;
   final String source;
   final String mediaInfo;
+  final bool probing;
   final VoidCallback onTap;
 
   @override
@@ -660,7 +704,8 @@ class _MemeCard extends StatelessWidget {
                   child: SourceBadge(
                     label: asset.motionVerified
                         ? 'GIF · 움직임 확인'
-                        : (asset.format ?? '형식 미확인'),
+                        : asset.displayFormat ??
+                              (probing ? '형식 확인 중' : '원본 확인 필요'),
                   ),
                 ),
               ],
@@ -749,7 +794,7 @@ class _PreviewDialog extends StatefulWidget {
     required this.services,
     required this.actions,
     required this.source,
-    required this.mediaInfo,
+    required this.onInspected,
     required this.onSaved,
   });
 
@@ -757,7 +802,7 @@ class _PreviewDialog extends StatefulWidget {
   final AppServices services;
   final MediaActions actions;
   final String source;
-  final String mediaInfo;
+  final ValueChanged<MemeAsset> onInspected;
   final Future<void> Function() onSaved;
 
   @override
@@ -768,6 +813,7 @@ class _PreviewDialogState extends State<_PreviewDialog> {
   MediaFile? _media;
   String? _error;
   bool _busy = true;
+  bool _previewOnly = false;
 
   @override
   void initState() {
@@ -776,11 +822,32 @@ class _PreviewDialogState extends State<_PreviewDialog> {
   }
 
   Future<void> _load() async {
+    setState(() {
+      _busy = true;
+      _error = null;
+      _previewOnly = false;
+      _media = null;
+    });
     try {
       final media = await widget.services.loadMedia(widget.asset);
-      if (mounted) setState(() => _media = media);
+      if (!mounted) return;
+      setState(() => _media = media);
+      widget.onInspected(media.asset);
     } catch (_) {
-      if (mounted) setState(() => _error = '원본 미리보기를 불러오지 못했어요.');
+      if (!mounted) return;
+      try {
+        final preview = await widget.services.loadPreviewMedia(widget.asset);
+        if (mounted) {
+          setState(() {
+            _media = preview;
+            _previewOnly = true;
+          });
+        }
+      } catch (_) {
+        if (mounted) {
+          setState(() => _error = '이미지를 불러오지 못했어요. 출처에서 원본을 확인하거나 다시 시도해 주세요.');
+        }
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -797,7 +864,7 @@ class _PreviewDialogState extends State<_PreviewDialog> {
       if (!mounted || result.cancelled) return;
       if (result.completed) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(result.message ?? success)));
+            .showSnackBar(SnackBar(content: Text(success)));
       }
     } on MediaActionException catch (error) {
       if (mounted) {
@@ -828,228 +895,173 @@ class _PreviewDialogState extends State<_PreviewDialog> {
   }
 
   @override
-  Widget build(BuildContext context) => Dialog(
-    insetPadding: const EdgeInsets.all(18),
-    backgroundColor: MemeTheme.surface,
-    child: ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: 760),
-      child: SingleChildScrollView(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Align(
-                alignment: Alignment.topRight,
-                child: IconButton(
-                  onPressed: () => Navigator.pop(context),
-                  icon: const Icon(Icons.close),
-                  tooltip: '미리보기 닫기',
-                ),
-              ),
-              AspectRatio(
-                aspectRatio:
-                    (widget.asset.width != null && widget.asset.height != null)
-                    ? widget.asset.width! / widget.asset.height!
-                    : 1,
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(10),
-                  child: ColoredBox(
-                    color: MemeTheme.cream,
-                    child: _busy
-                        ? const Center(child: CircularProgressIndicator())
-                        : _error != null
-                        ? Center(
-                            child: Padding(
-                              padding: const EdgeInsets.all(24),
-                              child: Text(_error!, textAlign: TextAlign.center),
-                            ),
-                          )
-                        : Image.memory(_media!.bytes, fit: BoxFit.contain),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 18),
-              Text(
-                widget.source,
-                style: const TextStyle(
-                  color: MemeTheme.accent,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-              const SizedBox(height: 5),
-              Text(
-                widget.asset.title,
-                style: Theme.of(context).textTheme.titleLarge,
-              ),
-              const SizedBox(height: 5),
-              Text(
-                widget.mediaInfo,
-                style: const TextStyle(color: MemeTheme.muted),
-              ),
-              if (widget.asset.matchReason != null) ...[
-                const SizedBox(height: 6),
-                Text(
-                  widget.asset.matchReason!,
-                  style: const TextStyle(color: MemeTheme.muted, fontSize: 12),
-                ),
-              ],
-              const SizedBox(height: 16),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  FilledButton.icon(
-                    onPressed: _media == null
-                        ? null
-                        : () => _run(widget.actions.copy, '클립보드에 복사했어요.'),
-                    icon: const Icon(Icons.copy_outlined),
-                    label: const Text('복사'),
-                  ),
-                  OutlinedButton.icon(
-                    onPressed: _media == null
-                        ? null
-                        : () => _run(widget.actions.save, '원본을 저장했어요.'),
-                    icon: const Icon(Icons.download_outlined),
-                    label: const Text('원본 저장'),
-                  ),
-                  OutlinedButton.icon(
-                    onPressed: _media == null
-                        ? null
-                        : () => _run(widget.actions.share, '공유 화면을 열었어요.'),
-                    icon: const Icon(Icons.ios_share_outlined),
-                    label: const Text('공유'),
-                  ),
-                  if (widget.asset.isWeb)
-                    OutlinedButton.icon(
-                      onPressed: _media == null ? null : _saveToLibrary,
-                      icon: const Icon(Icons.add_to_photos_outlined),
-                      label: const Text('내 짤에 저장'),
-                    ),
-                  if (widget.asset.sourceUrl != null ||
-                      widget.asset.originalUrl != null)
-                    OutlinedButton.icon(
-                      onPressed: () => launchUrl(
-                        Uri.parse(
-                          widget.asset.sourceUrl ?? widget.asset.originalUrl!,
-                        ),
-                        mode: LaunchMode.externalApplication,
-                      ),
-                      icon: const Icon(Icons.open_in_new),
-                      label: const Text('출처'),
-                    ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                'Esc 닫기 · Ctrl + C 복사',
-                style: TextStyle(color: MemeTheme.muted, fontSize: 11),
-              ),
-            ],
-          ),
-        ),
-      ),
-    ),
+  Widget build(BuildContext context) => CallbackShortcuts(
+    bindings: {
+      const SingleActivator(LogicalKeyboardKey.keyC, control: true): () =>
+          _copy(),
+    },
+    child: Focus(autofocus: true, child: _dialog(context)),
   );
-}
 
-class _SettingsDialog extends StatefulWidget {
-  const _SettingsDialog({required this.services});
-
-  final AppServices services;
-
-  @override
-  State<_SettingsDialog> createState() => _SettingsDialogState();
-}
-
-class _SettingsDialogState extends State<_SettingsDialog> {
-  final _key = TextEditingController();
-  bool _saving = false;
-  SettingsState? _settings;
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  @override
-  void dispose() {
-    _key.dispose();
-    super.dispose();
-  }
-
-  Future<void> _load() async {
-    final settings = await widget.services.settings();
-    if (mounted) setState(() => _settings = settings);
-  }
-
-  Future<void> _save() async {
-    final value = _key.text.trim();
-    if (value.isEmpty) return;
-    setState(() => _saving = true);
-    try {
-      await widget.services.writeSerpApiKey(value);
-      _key.clear();
-      await _load();
-      if (mounted) Navigator.pop(context);
-    } finally {
-      if (mounted) setState(() => _saving = false);
+  void _copy() {
+    if (_media != null) {
+      _run(
+        widget.actions.copy,
+        _previewOnly ? '미리보기 이미지를 복사했어요.' : '클립보드에 복사했어요.',
+      );
     }
   }
 
-  Future<void> _clear() async {
-    await widget.services.deleteSerpApiKey();
-    await _load();
-  }
-
-  @override
-  Widget build(BuildContext context) => AlertDialog(
-    title: const Text('외부 검색 설정'),
-    content: SizedBox(
-      width: 420,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            _settings?.serpApiConfigured == true
-                ? 'SerpApi · ${_settings!.serpApiKeySource}'
-                : 'SerpApi API 키를 설정하면 웹 검색을 사용할 수 있어요.',
-            style: const TextStyle(color: MemeTheme.muted),
-          ),
-          const SizedBox(height: 14),
-          TextField(
-            controller: _key,
-            obscureText: true,
-            autocorrect: false,
-            enableSuggestions: false,
-            decoration: const InputDecoration(
-              labelText: 'SerpApi API 키',
-              hintText: '키 입력',
+  Widget _dialog(BuildContext context) {
+    final displayed = _media?.asset ?? widget.asset;
+    return Dialog(
+      insetPadding: const EdgeInsets.all(18),
+      backgroundColor: MemeTheme.surface,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 760),
+        child: SingleChildScrollView(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Align(
+                  alignment: Alignment.topRight,
+                  child: IconButton(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.close),
+                    tooltip: '미리보기 닫기',
+                  ),
+                ),
+                ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxHeight: MediaQuery.sizeOf(context).height * .48,
+                  ),
+                  child: AspectRatio(
+                    aspectRatio:
+                        (displayed.width != null &&
+                            displayed.height != null &&
+                            displayed.width! > 0 &&
+                            displayed.height! > 0)
+                        ? displayed.width! / displayed.height!
+                        : 1,
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(10),
+                      child: ColoredBox(
+                        color: MemeTheme.cream,
+                        child: _busy
+                            ? const Center(child: CircularProgressIndicator())
+                            : _error != null
+                            ? Center(
+                                child: Padding(
+                                  padding: const EdgeInsets.all(24),
+                                  child: Text(
+                                    _error!,
+                                    textAlign: TextAlign.center,
+                                  ),
+                                ),
+                              )
+                            : Image.memory(_media!.bytes, fit: BoxFit.contain),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 18),
+                Text(
+                  widget.source,
+                  style: const TextStyle(
+                    color: MemeTheme.accent,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 5),
+                Text(
+                  widget.asset.title,
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                const SizedBox(height: 5),
+                Text(
+                  _SearchScreenState._mediaInfo(displayed),
+                  style: const TextStyle(color: MemeTheme.muted),
+                ),
+                if (_previewOnly)
+                  const Text(
+                    '원본을 열 수 없어 검색 엔진의 미리보기를 표시했어요. 복사하면 이 크기로 붙여넣어요.',
+                  ),
+                if (_previewOnly || _error != null)
+                  TextButton(
+                    onPressed: _busy ? null : _load,
+                    child: const Text('원본 다시 시도'),
+                  ),
+                if (widget.asset.matchReason != null) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    widget.asset.matchReason!,
+                    style: const TextStyle(
+                      color: MemeTheme.muted,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 16),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    FilledButton.icon(
+                      onPressed: _media == null ? null : _copy,
+                      icon: const Icon(Icons.copy_outlined),
+                      label: Text(_previewOnly ? '미리보기 이미지 복사' : '복사'),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: _media == null || _previewOnly
+                          ? null
+                          : () => _run(widget.actions.save, '원본을 저장했어요.'),
+                      icon: const Icon(Icons.download_outlined),
+                      label: const Text('원본 저장'),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: _media == null || _previewOnly
+                          ? null
+                          : () => _run(widget.actions.share, '공유 화면을 열었어요.'),
+                      icon: const Icon(Icons.ios_share_outlined),
+                      label: const Text('공유'),
+                    ),
+                    if (widget.asset.isWeb)
+                      OutlinedButton.icon(
+                        onPressed: _media == null || _previewOnly
+                            ? null
+                            : _saveToLibrary,
+                        icon: const Icon(Icons.add_to_photos_outlined),
+                        label: const Text('내 짤에 저장'),
+                      ),
+                    if (widget.asset.sourceUrl != null ||
+                        widget.asset.originalUrl != null)
+                      OutlinedButton.icon(
+                        onPressed: () => launchUrl(
+                          Uri.parse(
+                            widget.asset.sourceUrl ?? widget.asset.originalUrl!,
+                          ),
+                          mode: LaunchMode.externalApplication,
+                        ),
+                        icon: const Icon(Icons.open_in_new),
+                        label: const Text('출처'),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Esc 닫기 · Ctrl + C 복사',
+                  style: TextStyle(color: MemeTheme.muted, fontSize: 11),
+                ),
+              ],
             ),
           ),
-          const SizedBox(height: 8),
-          const Text(
-            '키는 이 화면에 다시 표시하지 않고 기기의 보안 저장소에 보관해요.',
-            style: TextStyle(color: MemeTheme.muted, fontSize: 12),
-          ),
-        ],
+        ),
       ),
-    ),
-    actions: [
-      TextButton(
-        onPressed: _settings?.serpApiConfigured == true ? _clear : null,
-        child: const Text('저장된 키 삭제'),
-      ),
-      TextButton(
-        onPressed: () => Navigator.pop(context),
-        child: const Text('닫기'),
-      ),
-      FilledButton(onPressed: _saving ? null : _save, child: const Text('저장')),
-    ],
-  );
+    );
+  }
 }
 
 class _InlineMessage extends StatelessWidget {
