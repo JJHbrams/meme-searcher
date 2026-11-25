@@ -28,6 +28,14 @@ class LocalLibraryStore {
   final Map<String, MemeAsset> _recentAssets = {};
   final Map<String, MemeAsset> _favoriteWebAssets = {};
   final Map<String, _CacheRecord> _cache = {};
+  // If Windows has a handle open when a cache file is removed, retain this
+  // marker until a later reconciliation can remove it.  Otherwise that stale
+  // file would be rediscovered and silently reappear after a restart.
+  final Set<String> _deletedCacheDigests = {};
+  final Set<String> _deletedMediaDigests = {};
+  // Built-in samples are reseeded by DeviceAppServices at startup.  These
+  // tombstones make an explicit user removal survive that initialization.
+  final Set<String> _deletedSeedIds = {};
   final List<String> _recent = [];
   final List<String> _recentSearches = [];
   final Map<String, int> _pendingCopies = {};
@@ -46,7 +54,7 @@ class LocalLibraryStore {
     final result = LocalLibraryStore._(
       Directory(p.join(root.path, 'meme_drawer')),
       cacheLimitBytes < 0 ? 0 : cacheLimitBytes,
-      Map.unmodifiable({
+      Map.from({
         for (final entry in bundledDigests.entries)
           if (_digest(entry.value)) entry.key: entry.value,
       }),
@@ -68,7 +76,7 @@ class LocalLibraryStore {
         if (version is! int || version < 1 || data['assets'] is! List) {
           throw const FormatException('Invalid drawer index');
         }
-        if (version > 2) throw StateError('Newer drawer index');
+        if (version > 3) throw StateError('Newer drawer index');
         legacy = version == 1;
         _readIndex(data);
       } on FileSystemException {
@@ -96,6 +104,7 @@ class LocalLibraryStore {
     var changed = legacy;
     if (legacy) changed = await _migrateLegacyMedia() || changed;
     changed = await _reconcileCacheFiles() || changed;
+    changed = await _reconcileDeletedMediaFiles() || changed;
     final beforePrune = _cache.length;
     _cache.removeWhere(
       (_, r) =>
@@ -159,6 +168,18 @@ class LocalLibraryStore {
           );
         }
       }
+    void readStrings(
+      Object? value,
+      Set<String> into,
+      bool Function(String) ok,
+    ) {
+      if (value is! List) return;
+      into.addAll(value.whereType<String>().where(ok));
+    }
+
+    readStrings(data['deletedCacheDigests'], _deletedCacheDigests, _digest);
+    readStrings(data['deletedMediaDigests'], _deletedMediaDigests, _digest);
+    readStrings(data['deletedSeedIds'], _deletedSeedIds, (id) => id.isNotEmpty);
     _pruneRecent();
   }
 
@@ -201,15 +222,29 @@ class LocalLibraryStore {
 
   Future<bool> _reconcileCacheFiles() async {
     var changed = false;
+    final seenDeleted = <String>{};
     await for (final file in _cacheDir.list(followLinks: false)) {
       if (file is! File) continue;
       final name = _name(file.path);
       if (name == null) continue;
       final digest = name.$1;
       final stat = await file.stat();
+      if (_deletedCacheDigests.contains(digest)) {
+        seenDeleted.add(digest);
+        // A deletion can outlive this process if another Windows consumer had
+        // the file open.  Do not turn it back into an indexed cache entry.
+        try {
+          await file.delete();
+          _deletedCacheDigests.remove(digest);
+          changed = true;
+        } on FileSystemException {
+          // Keep the durable marker and try on the next startup.
+        }
+        continue;
+      }
       final old = _cache[digest];
       if (_permanentByDigest(digest) != null ||
-          _bundledDigests.containsValue(digest)) {
+          _hasActiveBundledDigest(digest)) {
         // A promotion can finish its index write before it removes the cache copy.
         final durable = File(p.join(_media.path, p.basename(file.path)));
         if (await durable.exists()) {
@@ -254,6 +289,47 @@ class LocalLibraryStore {
         file.path,
       );
       changed = true;
+    }
+    for (final digest in _deletedCacheDigests.toList()) {
+      if (!seenDeleted.contains(digest)) {
+        _deletedCacheDigests.remove(digest);
+        changed = true;
+      }
+    }
+    return changed;
+  }
+
+  Future<bool> _reconcileDeletedMediaFiles() async {
+    if (_deletedMediaDigests.isEmpty) return false;
+    var changed = false;
+    final blocked = <String>{};
+    await for (final entity in _media.list(followLinks: false)) {
+      if (entity is! File) continue;
+      final digest = _name(entity.path)?.$1;
+      if (digest == null || !_deletedMediaDigests.contains(digest)) continue;
+      final referenced = _assets.values.any(
+        (asset) =>
+            asset.filePath != null &&
+            _inside(asset.filePath!, _media) &&
+            _name(asset.filePath!)?.$1 == digest,
+      );
+      if (referenced || _pendingCopies.containsKey(entity.path)) {
+        blocked.add(digest);
+        continue;
+      }
+      try {
+        await entity.delete();
+      } on FileSystemException {
+        blocked.add(digest);
+        continue;
+      }
+      changed = true;
+    }
+    for (final digest in _deletedMediaDigests.toList()) {
+      if (!blocked.contains(digest)) {
+        _deletedMediaDigests.remove(digest);
+        changed = true;
+      }
     }
     return changed;
   }
@@ -335,6 +411,155 @@ class LocalLibraryStore {
     for (final asset in assets) {
       _assets[asset.id] = asset;
     }
+  });
+
+  /// Whether a bundled seed remains eligible for automatic startup seeding.
+  /// An explicitly saved copy is a normal library asset and never needs to
+  /// clear this marker to be usable.
+  bool shouldSeed(String id) =>
+      !_deletedSeedIds.contains(id) && !_assets.containsKey(id);
+  bool isSeedDeleted(String id) => _deletedSeedIds.contains(id);
+
+  /// Lets an injected test/store instance learn the app's immutable bundle
+  /// manifest before DeviceAppServices reseeds it.
+  void registerBundledDigests(Map<String, String> digests) {
+    for (final entry in digests.entries) {
+      if (_digest(entry.value)) _bundledDigests[entry.key] = entry.value;
+    }
+  }
+
+  /// Deletes stable local/cache IDs and their derived history aliases.
+  ///
+  /// This intentionally does not accept paths.  A stale `cache:<hash>` that
+  /// was promoted meanwhile is not treated as permission to delete the newer
+  /// permanent item.
+  Future<int> deleteLocalAssets(Iterable<String> assetIds) => _locked(() async {
+    final requested = assetIds
+        .map((id) => id.trim())
+        .where((id) => id.isNotEmpty)
+        .toSet();
+    if (requested.isEmpty) return 0;
+
+    final permanent = <String, MemeAsset>{
+      for (final id in requested)
+        if (_assets[id] != null) id: _assets[id]!,
+    };
+    final cached = <String, _CacheRecord>{};
+    for (final id in requested) {
+      if (!id.startsWith('cache:')) continue;
+      final digest = id.substring('cache:'.length);
+      final record = _cache[digest];
+      // Exact cache IDs only: a cache selection must not erase a promotion.
+      if (_digest(digest) && record != null && record.asset.id == id) {
+        cached[digest] = record;
+      }
+    }
+    if (permanent.isEmpty && cached.isEmpty) return 0;
+
+    final identities = <_AssetIdentity>[
+      ...permanent.values.map(_identityFor),
+      ...cached.values.map((record) => _identityFor(record.asset)),
+    ];
+    final aliases = <String>{
+      ...permanent.keys,
+      ...cached.values.map((r) => r.asset.id),
+    };
+    void collect(Map<String, MemeAsset> source) {
+      for (final entry in source.entries) {
+        if (identities.any((identity) => identity.matches(entry.value))) {
+          aliases.add(entry.key);
+        }
+      }
+    }
+
+    collect(_assets);
+    collect(_recentAssets);
+    collect(_favoriteWebAssets);
+
+    final oldAssets = Map<String, MemeAsset>.from(_assets);
+    final oldRecentAssets = Map<String, MemeAsset>.from(_recentAssets);
+    final oldFavoriteWebAssets = Map<String, MemeAsset>.from(
+      _favoriteWebAssets,
+    );
+    final oldCache = Map<String, _CacheRecord>.from(_cache);
+    final oldRecent = List<String>.from(_recent);
+    final oldDeletedCache = Set<String>.from(_deletedCacheDigests);
+    final oldDeletedMedia = Set<String>.from(_deletedMediaDigests);
+    final oldDeletedSeeds = Set<String>.from(_deletedSeedIds);
+    for (final entry in permanent.entries) {
+      _assets.remove(entry.key);
+      if (_bundledDigests.containsKey(entry.key) ||
+          entry.value.origin == 'seed') {
+        _deletedSeedIds.add(entry.key);
+      }
+      final digest = _assetDigest(entry.value);
+      if (digest != null) _deletedMediaDigests.add(digest);
+    }
+    for (final digest in cached.keys) {
+      _cache.remove(digest);
+      _deletedCacheDigests.add(digest);
+    }
+    _recent.removeWhere(aliases.contains);
+    _recentAssets.removeWhere(
+      (id, asset) =>
+          aliases.contains(id) ||
+          identities.any((identity) => identity.matches(asset)),
+    );
+    _favoriteWebAssets.removeWhere(
+      (id, asset) =>
+          aliases.contains(id) ||
+          identities.any((identity) => identity.matches(asset)),
+    );
+    _pruneRecent();
+    try {
+      await _write();
+    } catch (_) {
+      _assets
+        ..clear()
+        ..addAll(oldAssets);
+      _recentAssets
+        ..clear()
+        ..addAll(oldRecentAssets);
+      _favoriteWebAssets
+        ..clear()
+        ..addAll(oldFavoriteWebAssets);
+      _cache
+        ..clear()
+        ..addAll(oldCache);
+      _recent
+        ..clear()
+        ..addAll(oldRecent);
+      _deletedCacheDigests
+        ..clear()
+        ..addAll(oldDeletedCache);
+      _deletedMediaDigests
+        ..clear()
+        ..addAll(oldDeletedMedia);
+      _deletedSeedIds
+        ..clear()
+        ..addAll(oldDeletedSeeds);
+      rethrow;
+    }
+
+    // Index removal is durable before filesystem cleanup.  Cleanup only ever
+    // targets a filename we derived from an indexed managed asset.
+    var cleanupChanged = false;
+    for (final entry in cached.entries) {
+      if (await _deleteCacheFile(entry.key, entry.value)) {
+        cleanupChanged =
+            _deletedCacheDigests.remove(entry.key) || cleanupChanged;
+      }
+    }
+    cleanupChanged = await _reconcileDeletedMediaFiles() || cleanupChanged;
+    if (cleanupChanged) {
+      try {
+        await _write();
+      } on FileSystemException {
+        // The first index commit already made deletion durable.  Leaving an
+        // old cleanup marker merely causes an idempotent retry next startup.
+      }
+    }
+    return permanent.length + cached.length;
   });
 
   String? _storedId(Map<String, MemeAsset> assets, MemeAsset asset) {
@@ -446,8 +671,12 @@ class LocalLibraryStore {
   Future<MediaFile> cacheMedia(MediaFile file, {required bool previewOnly}) =>
       _locked(() async {
         final digest = sha256.convert(file.bytes).toString();
+        // A new successful download is an explicit recache request.  It is
+        // allowed to reuse a file whose previous deletion was blocked.
+        _deletedCacheDigests.remove(digest);
         final stored = _permanentByDigest(digest);
-        if (stored != null || _bundledDigests.containsValue(digest)) {
+        final activeBundled = _hasActiveBundledDigest(digest);
+        if (stored != null || activeBundled) {
           final blob = await _materialize(_media, digest, file);
           return _atPath(file, blob.path, previewOnly: previewOnly);
         }
@@ -502,6 +731,10 @@ class LocalLibraryStore {
     }
     return null;
   }
+
+  bool _hasActiveBundledDigest(String digest) => _bundledDigests.entries.any(
+    (entry) => entry.value == digest && !_deletedSeedIds.contains(entry.key),
+  );
 
   static MediaFile _atPath(MediaFile file, String path, {bool? previewOnly}) =>
       MediaFile(
@@ -565,6 +798,7 @@ class LocalLibraryStore {
   }
 
   Future<MemeAsset> _promote(MediaFile file, String digest, String path) async {
+    _deletedMediaDigests.remove(digest);
     final existing = _permanentByDigest(digest);
     final aliases = <String>{file.asset.id, 'cache:$digest'};
     bool sameImage(MemeAsset asset) {
@@ -690,6 +924,30 @@ class LocalLibraryStore {
     }
   }
 
+  Future<void> _deletePermanentFileIfUnreferenced(MemeAsset asset) async {
+    final path = asset.filePath;
+    final digest = path == null ? null : _name(path)?.$1;
+    if (path == null ||
+        digest == null ||
+        !_inside(path, _media) ||
+        p.dirname(p.normalize(path)) != p.normalize(_media.path)) {
+      return;
+    }
+    // Content-addressed media can be shared by another saved entry.  Never
+    // remove the blob while a surviving library item still owns that digest.
+    final stillReferenced = _assets.values.any(
+      (other) => other.filePath != null && _name(other.filePath!)?.$1 == digest,
+    );
+    if (stillReferenced) return;
+    try {
+      await File(path).delete();
+    } on PathNotFoundException {
+      // Already gone is the desired end state.
+    } on FileSystemException {
+      // The record stays deleted; a later explicit save can recreate it.
+    }
+  }
+
   Future<void> _evict() async {
     var total = _cache.values.fold(0, (sum, entry) => sum + entry.size);
     if (total <= cacheLimitBytes) return;
@@ -733,7 +991,7 @@ class LocalLibraryStore {
     );
     await tmp.writeAsString(
       jsonEncode({
-        'version': 2,
+        'version': 3,
         'assets': _assets.values.map((a) => a.toJson()).toList(),
         'recent': _recent,
         'recentAssets': _recentAssets.values.map((a) => a.toJson()).toList(),
@@ -751,6 +1009,9 @@ class LocalLibraryStore {
               },
             )
             .toList(),
+        'deletedCacheDigests': _deletedCacheDigests.toList(),
+        'deletedMediaDigests': _deletedMediaDigests.toList(),
+        'deletedSeedIds': _deletedSeedIds.toList(),
       }),
       flush: true,
     );
@@ -776,6 +1037,26 @@ class LocalLibraryStore {
   static bool _inside(String child, Directory parent) => p
       .normalize(p.absolute(child))
       .startsWith('${p.normalize(p.absolute(parent.path))}${p.separator}');
+  static _AssetIdentity _identityFor(MemeAsset asset) {
+    final path = asset.filePath;
+    return _AssetIdentity(
+      asset.id,
+      path == null ? null : _name(path)?.$1,
+      asset.isPreviewOnly ? asset.previewUrl : asset.originalUrl,
+      asset.isPreviewOnly,
+    );
+  }
+
+  String? _assetDigest(MemeAsset asset) {
+    final path = asset.filePath;
+    if (path != null &&
+        _inside(path, _media) &&
+        p.dirname(p.normalize(path)) == p.normalize(_media.path)) {
+      return _name(path)?.$1;
+    }
+    return _bundledDigests[asset.id];
+  }
+
   static MemeAsset _merge(MemeAsset fresh, MemeAsset? old, bool favorite) =>
       fresh.copyWith(
         filePath: fresh.filePath ?? old?.filePath,
@@ -800,6 +1081,32 @@ class _CacheRecord {
   final MemeAsset asset;
   final int size;
   DateTime access;
+}
+
+class _AssetIdentity {
+  const _AssetIdentity(this.id, this.digest, this.source, this.previewOnly);
+
+  final String id;
+  final String? digest;
+  final String? source;
+  final bool previewOnly;
+
+  bool matches(MemeAsset asset) {
+    if (asset.id == id) return true;
+    final otherDigest = asset.filePath == null
+        ? null
+        : LocalLibraryStore._name(asset.filePath!)?.$1;
+    if (digest != null && otherDigest == digest) return true;
+    if (source == null ||
+        source!.isEmpty ||
+        asset.isPreviewOnly != previewOnly) {
+      return false;
+    }
+    final otherSource = asset.isPreviewOnly
+        ? asset.previewUrl
+        : asset.originalUrl;
+    return source == otherSource;
+  }
 }
 
 class _Staged {

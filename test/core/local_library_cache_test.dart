@@ -146,7 +146,7 @@ void main() {
         jsonDecode(
           await File(p.join(drawer.path, 'library.json')).readAsString(),
         )['version'],
-        2,
+        3,
       );
     },
   );
@@ -189,10 +189,7 @@ void main() {
         previewOnly: false,
       );
       await Future<void>.delayed(const Duration(milliseconds: 2));
-      await store.cacheMedia(
-        _media([2], 'second'),
-        previewOnly: false,
-      );
+      await store.cacheMedia(_media([2], 'second'), previewOnly: false);
       await store.touchCached(first.path);
 
       expect(store.cachedAssets().map((asset) => asset.title), [
@@ -222,6 +219,67 @@ void main() {
       ).displayTitle,
       isNull,
     );
+  });
+
+  test(
+    'deleting cached media removes web-history aliases and survives reopen',
+    () async {
+      final store = await LocalLibraryStore.open(directory: root);
+      const web = MemeAsset(
+        id: 'web-history',
+        title: 'History item',
+        origin: 'web',
+        originalUrl: 'https://example.test/original.gif',
+      );
+      await store.recent(web.id, asset: web);
+      await store.toggleFavorite(web.id, asset: web);
+      final cached = await store.cacheMedia(
+        MediaFile(
+          bytes: Uint8List.fromList([8, 6, 7, 5]),
+          path: '',
+          asset: web.copyWith(format: 'GIF'),
+        ),
+        previewOnly: false,
+      );
+
+      final cachedId = store.cachedAssets().single.id;
+      expect(await store.deleteLocalAssets([cachedId]), 1);
+      expect(store.cachedAssets(), isEmpty);
+      expect(store.recentAssets(), isEmpty);
+      expect(store.favorites(), isEmpty);
+      expect(await File(cached.path).exists(), isFalse);
+      expect(await store.deleteLocalAssets([cachedId]), 0);
+
+      final reopened = await LocalLibraryStore.open(directory: root);
+      expect(reopened.cachedAssets(), isEmpty);
+      expect(reopened.recentAssets(), isEmpty);
+      expect(reopened.favorites(), isEmpty);
+
+      // A later web request for the same bytes is a new cache operation, not a
+      // resurrection of the removed record.
+      await reopened.cacheMedia(
+        MediaFile(
+          bytes: Uint8List.fromList([8, 6, 7, 5]),
+          path: '',
+          asset: web.copyWith(format: 'GIF'),
+        ),
+        previewOnly: false,
+      );
+      final recached = await LocalLibraryStore.open(directory: root);
+      expect(recached.cachedAssets(), hasLength(1));
+    },
+  );
+
+  test('deleting a library record never follows an external path', () async {
+    final store = await LocalLibraryStore.open(directory: root);
+    final external = File(p.join(root.path, 'outside.png'));
+    await external.writeAsBytes([9, 9]);
+    await store.upsert(
+      MemeAsset(id: 'external', title: 'external', filePath: external.path),
+    );
+
+    expect(await store.deleteLocalAssets(['external']), 1);
+    expect(await external.readAsBytes(), [9, 9]);
   });
 }
 
