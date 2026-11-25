@@ -3,7 +3,6 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:crypto/crypto.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
@@ -28,6 +27,7 @@ class DeviceAppServices implements AppServices {
     AssetBundle? bundle,
     FlutterSecureStorage? secureStorage,
     LocalLibraryStore? store,
+    SafeMediaDownloader? downloader,
     Future<void> Function(String)? verifyKey,
     Future<SerpApiQuota> Function(String)? fetchQuota,
     Future<List<MemeAsset>> Function(QueryPlan, String)? googleSearch,
@@ -37,6 +37,7 @@ class DeviceAppServices implements AppServices {
        _verifyKey = verifyKey ?? verifySerpApiKey,
        _fetchQuota = fetchQuota ?? fetchSerpApiQuota,
        _store = store,
+       _downloader = downloader ?? SafeMediaDownloader(),
        _googleSearch = googleSearch ?? SerpApiMcpCollector().call,
        _naverSearch = naverSearch ?? NaverImageCollector().call;
 
@@ -49,7 +50,7 @@ class DeviceAppServices implements AppServices {
   final Future<List<MemeAsset>> Function(QueryPlan, String)? _googleSearch;
   final Future<List<MemeAsset>> Function(QueryPlan)? _naverSearch;
   final RankingService _ranking = const RankingService();
-  final SafeMediaDownloader _downloader = SafeMediaDownloader();
+  final SafeMediaDownloader _downloader;
   final Map<String, Future<String?>> _formatProbes = {};
   final List<Future<void>> _formatProbeSlots = List.filled(
     3,
@@ -74,7 +75,14 @@ class DeviceAppServices implements AppServices {
   }
 
   Future<void> _initialize() async {
-    _store ??= await LocalLibraryStore.open();
+    final testDirectory =
+        Platform.environment['MEME_SEARCHER_HEADLESS_TEST'] == '1'
+        ? Platform.environment['MEME_SEARCHER_TEST_DATA']
+        : null;
+    _store ??= await LocalLibraryStore.open(
+      directory: testDirectory == null ? null : Directory(testDirectory),
+      bundledDigests: MemeCatalog.bundledDigests,
+    );
     _visualMatcher = await VisualMatcher.load(_bundle);
     final seeds = MemeCatalog.seedAssets
         .map(catalog.seedToAsset)
@@ -88,13 +96,6 @@ class DeviceAppServices implements AppServices {
     await initialize();
     final planner = QueryPlanner(catalog);
     final plan = planner.plan(request);
-    final key =
-        '${request.scope.wireName}|${request.filter.wireName}|${request.similar}|${request.favoritesOnly}|${request.recentOnly}|${plan.providerQuery}';
-    final cached = _cache[key];
-    if (cached != null &&
-        DateTime.now().difference(cached.at) < const Duration(seconds: 60)) {
-      return cached.response;
-    }
     final attempts = <SearchAttempt>[];
     final groups = <List<MemeAsset>>[];
     if (request.scope != SearchScope.web) {
@@ -103,7 +104,14 @@ class DeviceAppServices implements AppServices {
         favoritesOnly: request.favoritesOnly,
         recentOnly: request.recentOnly,
       );
-      groups.add(local.where((asset) => _matchesLocal(asset, plan)).toList());
+      final candidates = [
+        ...local,
+        if (!request.favoritesOnly && !request.recentOnly)
+          ...await cachedLibrary(filter: request.filter),
+      ];
+      groups.add(
+        candidates.where((asset) => _matchesLocal(asset, plan)).toList(),
+      );
       attempts.add(
         SearchAttempt(
           engine: 'library',
@@ -114,41 +122,9 @@ class DeviceAppServices implements AppServices {
       );
     }
     if (request.scope != SearchScope.library) {
-      final key = await readSerpApiKey();
-      final tasks = <Future<void>>[];
-      if (_googleSearch == null || key == null || key.isEmpty) {
-        attempts.add(
-          SearchAttempt(
-            engine: 'google',
-            status: 'unconfigured',
-            query: plan.providerQuery,
-          ),
-        );
-      } else {
-        tasks.add(
-          _collect(
-            'google',
-            plan,
-            () => _googleSearch!(plan, key),
-            groups,
-            attempts,
-          ),
-        );
-      }
-      if (_naverSearch == null) {
-        attempts.add(
-          SearchAttempt(
-            engine: 'naver',
-            status: 'unavailable',
-            query: plan.providerQuery,
-          ),
-        );
-      } else {
-        tasks.add(
-          _collect('naver', plan, () => _naverSearch!(plan), groups, attempts),
-        );
-      }
-      await Future.wait(tasks);
+      final remote = await _webCandidates(plan);
+      groups.addAll(remote.groups);
+      attempts.addAll(remote.attempts);
     }
     var ranked = _ranking
         .mergeAndRank(groups, plan)
@@ -164,27 +140,68 @@ class DeviceAppServices implements AppServices {
         (plan.familyId != null || request.filter == MediaFilter.gif)) {
       ranked = await _probeVisual(ranked, plan);
     }
-    // A web collector produces fresh objects each time. Overlay durable Home
-    // state so a bookmarked result stays visibly bookmarked on later searches.
     ranked = ranked.map(_store!.applyStoredState).toList(growable: false);
-    final remoteAttempts = attempts
-        .where(
-          (attempt) => attempt.engine == 'google' || attempt.engine == 'naver',
-        )
-        .toList(growable: false);
+    final remoteAttempts = attempts.where(
+      (attempt) => attempt.engine != 'library',
+    );
     final remoteFailure =
-        request.scope != SearchScope.library &&
-        remoteAttempts.isNotEmpty &&
-        !remoteAttempts.any((attempt) => attempt.status == 'ok') &&
-        remoteAttempts.any((attempt) => attempt.status == 'failed');
-    final response = SearchResponse(
+        remoteAttempts.any((attempt) => attempt.status == 'failed') &&
+        !remoteAttempts.any((attempt) => attempt.status == 'ok');
+    return SearchResponse(
       assets: ranked,
       attempts: attempts,
       scope: request.scope,
       error: remoteFailure ? '웹 검색에 실패했습니다.' : null,
     );
-    _cache[key] = _CachedSearch(DateTime.now(), response);
-    return response;
+  }
+
+  // Reuse paid provider responses while rebuilding local matches from the
+  // current drawer. A promotion or eviction must be visible immediately.
+  Future<_CachedSearch> _webCandidates(QueryPlan plan) async {
+    final cacheKey =
+        '${plan.filter.wireName}|${plan.similar}|${plan.providerQuery}';
+    final cutoff = DateTime.now().subtract(const Duration(seconds: 60));
+    _cache.removeWhere((_, value) => value.at.isBefore(cutoff));
+    final cached = _cache[cacheKey];
+    if (cached != null) return cached;
+    final groups = <List<MemeAsset>>[];
+    final attempts = <SearchAttempt>[];
+    final key = await readSerpApiKey();
+    final tasks = <Future<void>>[];
+    if (_googleSearch == null || key == null || key.isEmpty) {
+      attempts.add(
+        SearchAttempt(
+          engine: 'google',
+          status: 'unconfigured',
+          query: plan.providerQuery,
+        ),
+      );
+    } else {
+      tasks.add(
+        _collect(
+          'google',
+          plan,
+          () => _googleSearch!(plan, key),
+          groups,
+          attempts,
+        ),
+      );
+    }
+    if (_naverSearch == null) {
+      attempts.add(
+        SearchAttempt(
+          engine: 'naver',
+          status: 'unavailable',
+          query: plan.providerQuery,
+        ),
+      );
+    } else {
+      tasks.add(
+        _collect('naver', plan, () => _naverSearch!(plan), groups, attempts),
+      );
+    }
+    await Future.wait(tasks);
+    return _cache[cacheKey] = _CachedSearch(DateTime.now(), groups, attempts);
   }
 
   Future<List<MemeAsset>> _probeVisual(
@@ -252,7 +269,16 @@ class DeviceAppServices implements AppServices {
   ) async {
     try {
       final results = await action();
-      groups.add(results);
+      groups.add([
+        for (final item in results)
+          item.copyWith(
+            aliases: {
+              ...item.aliases,
+              if (plan.words.isNotEmpty) plan.words,
+              ...plan.tagTerms,
+            }.toList(),
+          ),
+      ]);
       attempts.add(
         SearchAttempt(
           engine: engine,
@@ -303,6 +329,18 @@ class DeviceAppServices implements AppServices {
     if (favoritesOnly && recentOnly) {
       items = items.where((item) => item.favorite).toList();
     }
+    return _filterMedia(items, filter);
+  }
+
+  @override
+  Future<List<MemeAsset>> cachedLibrary({
+    MediaFilter filter = MediaFilter.all,
+  }) async {
+    await initialize();
+    return _filterMedia(_store!.cachedAssets(), filter);
+  }
+
+  List<MemeAsset> _filterMedia(List<MemeAsset> items, MediaFilter filter) {
     if (filter == MediaFilter.gif)
       items = items.where((item) => item.isGif).toList();
     if (filter == MediaFilter.staticImage)
@@ -315,12 +353,10 @@ class DeviceAppServices implements AppServices {
     MemeAsset asset, {
     bool preferCached = true,
   }) async {
-    if (asset.filePath != null && await File(asset.filePath!).exists()) {
-      return MediaFile(
-        bytes: await File(asset.filePath!).readAsBytes(),
-        path: asset.filePath!,
-        asset: asset,
-      );
+    await initialize();
+    if (preferCached && asset.filePath != null) {
+      final local = await _readLocal(asset, asset.filePath!);
+      if (local != null) return local;
     }
     if (asset.bundledAssetPath != null) {
       final data = await _bundle.load(asset.bundledAssetPath!);
@@ -338,10 +374,30 @@ class DeviceAppServices implements AppServices {
         asset: asset.copyWith(filePath: path),
       );
     }
-    final url = asset.originalUrl;
+    final url = asset.isPreviewOnly ? asset.previewUrl : asset.originalUrl;
     if (url == null || url.isEmpty)
       throw StateError('Media has no original URL.');
-    return _loadWebImage(asset, url, hydrateRecentOriginal: true);
+    return _loadWebImage(
+      asset,
+      url,
+      previewOnly: asset.isPreviewOnly,
+      reuse: preferCached,
+    );
+  }
+
+  Future<MediaFile?> _readLocal(MemeAsset asset, String path) async {
+    try {
+      final bytes = await File(path).readAsBytes();
+      await _store!.touchCached(path);
+      return MediaFile(
+        bytes: bytes,
+        path: path,
+        asset: asset.copyWith(filePath: path),
+      );
+    } on PathNotFoundException {
+      // The cache may have evicted this card since the results were drawn.
+      return null;
+    }
   }
 
   @override
@@ -374,14 +430,41 @@ class DeviceAppServices implements AppServices {
     if (!asset.isWeb || url == null || url == asset.originalUrl) {
       throw StateError('No separate web preview.');
     }
-    return _loadWebImage(asset, url);
+    return _loadWebImage(asset, url, previewOnly: true);
   }
 
   Future<MediaFile> _loadWebImage(
     MemeAsset asset,
     String url, {
-    bool hydrateRecentOriginal = false,
+    required bool previewOnly,
+    bool reuse = true,
   }) async {
+    await initialize();
+    if (reuse) {
+      for (final item
+          in _store!.filesForUrl(url, previewOnly: previewOnly).toList()) {
+        final snapshot = asset.copyWith(
+          format: item.format,
+          mime: item.mime,
+          width: item.width,
+          height: item.height,
+          frames: item.frames,
+          bytes: item.bytes,
+          animated: item.animated,
+          verified: item.verified,
+          motionVerified: item.motionVerified,
+          inspectionStatus: item.inspectionStatus,
+          inspectionReason: item.inspectionReason,
+          isPreviewOnly: item.isPreviewOnly,
+          aliases: {...item.aliases, ...asset.aliases}.toList(),
+        );
+        final local = await _readLocal(snapshot, item.filePath!);
+        if (local != null) {
+          if (!previewOnly) await _refreshRecentOriginal(local.asset);
+          return local;
+        }
+      }
+    }
     final bytes = await _downloader.download(url);
     final inspection = await MediaInspector.inspectMotion(bytes);
     if (inspection.format == 'UNKNOWN' ||
@@ -389,10 +472,7 @@ class DeviceAppServices implements AppServices {
         inspection.reason == 'animation-budget-exceeded') {
       throw StateError('Media failed safety inspection.');
     }
-    final ext = inspection.format.toLowerCase();
-    final path = await _store!.persistBytes(bytes, ext);
-    final cached = asset.copyWith(
-      filePath: path,
+    final inspected = asset.copyWith(
       format: inspection.format,
       mime: 'image/${inspection.format.toLowerCase()}',
       width: inspection.width,
@@ -401,17 +481,25 @@ class DeviceAppServices implements AppServices {
       animated: inspection.animated,
       motionVerified: inspection.motionVerified,
       verified: true,
+      bytes: bytes.length,
+      isPreviewOnly: previewOnly,
       inspectionStatus: inspection.animated ? 'animated' : 'static',
       inspectionReason: inspection.reason,
     );
-    if (hydrateRecentOriginal) {
-      try {
-        await _store!.refreshRecentAsset(cached);
-      } catch (_) {
-        // Recent history is best-effort; a storage failure must not block media.
-      }
+    final cached = await _store!.cacheMedia(
+      MediaFile(bytes: bytes, path: '', asset: inspected),
+      previewOnly: previewOnly,
+    );
+    if (!previewOnly) await _refreshRecentOriginal(cached.asset);
+    return cached;
+  }
+
+  Future<void> _refreshRecentOriginal(MemeAsset asset) async {
+    try {
+      await _store!.refreshRecentAsset(asset);
+    } catch (_) {
+      // Recent history is best-effort; a storage failure must not block media.
     }
-    return MediaFile(bytes: bytes, path: path, asset: cached);
   }
 
   @override
@@ -424,30 +512,36 @@ class DeviceAppServices implements AppServices {
     List<String> aliases = const [],
   }) async {
     await initialize();
-    final ext = (file.asset.format ?? file.path.split('.').last).toLowerCase();
-    final path = await _store!.persistBytes(file.bytes, ext);
-    final id = sha256.convert(file.bytes).toString();
     final asset = file.asset.copyWith(
-      id: id,
       title: title ?? file.asset.title,
-      origin: 'library',
-      filePath: path,
       familyId: familyId ?? file.asset.familyId,
       familyName: familyName ?? file.asset.familyName,
       tags: tags.isEmpty ? file.asset.tags : tags,
       aliases: aliases.isEmpty ? file.asset.aliases : aliases,
-      addedAt: DateTime.now(),
     );
-    await _store!.upsert(asset);
-    _cache.clear();
-    return asset;
+    return _store!.keepMedia(
+      MediaFile(bytes: file.bytes, path: file.path, asset: asset),
+    );
+  }
+
+  @override
+  Future<bool> copyAndKeep(
+    MediaFile file,
+    Future<bool> Function(MediaFile) copy,
+  ) async {
+    await initialize();
+    if (_store!.byId(file.asset.id) != null &&
+        !file.asset.isWeb &&
+        file.asset.origin != 'cache') {
+      return copy(file);
+    }
+    return _store!.copyAndKeep(file, copy);
   }
 
   @override
   Future<MemeAsset> toggleFavorite(String assetId, {MemeAsset? asset}) async {
     await initialize();
     final updated = await _store!.toggleFavorite(assetId, asset: asset);
-    _cache.clear();
     return updated;
   }
 
@@ -455,7 +549,6 @@ class DeviceAppServices implements AppServices {
   Future<void> markRecent(String assetId, {MemeAsset? asset}) async {
     await initialize();
     await _store!.recent(assetId, asset: asset);
-    _cache.clear();
   }
 
   @override
@@ -521,9 +614,10 @@ class DeviceAppServices implements AppServices {
 }
 
 class _CachedSearch {
-  const _CachedSearch(this.at, this.response);
+  const _CachedSearch(this.at, this.groups, this.attempts);
   final DateTime at;
-  final SearchResponse response;
+  final List<List<MemeAsset>> groups;
+  final List<SearchAttempt> attempts;
 }
 
 class _ProbedAsset {

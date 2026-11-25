@@ -61,4 +61,24 @@ void main() {
     );
     expect(ranking.rank([shop, meme], plan).first.id, 'meme');
   });
+  test('a saved thumbnail does not mask the full original in search', () {
+    const original = MemeAsset(
+      id: 'online',
+      title: 'reaction',
+      origin: 'web',
+      originalUrl: 'https://example.test/meme.gif',
+      previewUrl: 'https://example.test/thumbnail.jpg',
+    );
+    final thumbnail = original.copyWith(
+      id: 'saved',
+      origin: 'library',
+      isPreviewOnly: true,
+      format: 'JPEG',
+    );
+    final result = ranking.mergeAndRank([
+      [thumbnail],
+      [original],
+    ], plan);
+    expect(result.map((item) => item.id), unorderedEquals(['online', 'saved']));
+  });
 }

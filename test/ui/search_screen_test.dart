@@ -17,8 +17,9 @@ void main() {
     WidgetTester tester,
     _FakeServices services, {
     MediaActions? actions,
+    Size size = const Size(1440, 900),
   }) async {
-    await tester.binding.setSurfaceSize(const Size(1440, 900));
+    await tester.binding.setSurfaceSize(size);
     addTearDown(() => tester.binding.setSurfaceSize(null));
     await tester.pumpWidget(
       MaterialApp(
@@ -415,6 +416,118 @@ void main() {
     }
   });
 
+  testWidgets('all browse keeps temporary copies in two rows until expanded', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(560, 1800);
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final services = _FakeServices()
+      ..cached = List.generate(
+        7,
+        (index) => MemeAsset(
+          id: 'cache-$index',
+          title: 'Temporary $index',
+          origin: 'cache',
+          format: 'PNG',
+        ),
+      );
+    await openApp(tester, services, size: const Size(560, 1800));
+    await tester.tap(find.byKey(const ValueKey('nav-all')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('임시 저장'), findsWidgets);
+    expect(find.text('내 짤'), findsWidgets);
+    expect(find.textContaining('Temporary '), findsNWidgets(6));
+    expect(find.text('펼치기 (1)'), findsOneWidget);
+    tester.view.physicalSize = const Size(390, 1800);
+    await tester.binding.setSurfaceSize(const Size(390, 1800));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Temporary '), findsNWidgets(4));
+    expect(find.text('펼치기 (3)'), findsOneWidget);
+    tester.view.physicalSize = const Size(560, 1800);
+    await tester.binding.setSurfaceSize(const Size(560, 1800));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('펼치기 (1)'));
+    await tester.tap(find.text('펼치기 (1)'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Temporary '), findsNWidgets(7));
+  });
+
+  testWidgets('copy uses the durable copy callback', (tester) async {
+    final services = _FakeServices();
+    final actions = _RecordingActions();
+    await openApp(tester, services, actions: actions);
+    await tester.tap(find.text('Recent asset'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('복사'));
+    await tester.pumpAndSettle();
+    expect(actions.copied, hasLength(1));
+    expect(services.keptCopies, 1);
+  });
+
+  testWidgets('a completed copy refreshes all browse after its dialog closes', (
+    tester,
+  ) async {
+    final services = _FakeServices()
+      ..cached = const [
+        MemeAsset(
+          id: 'cached-copy',
+          title: 'Cached copy',
+          origin: 'cache',
+          format: 'PNG',
+        ),
+      ]
+      ..pendingKeep = Completer<bool>();
+    await openApp(tester, services, actions: _RecordingActions());
+    await tester.tap(find.byKey(const ValueKey('nav-all')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Cached copy'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('복사'));
+    await tester.pump();
+    await tester.tap(find.byTooltip('미리보기 닫기'));
+    await tester.pumpAndSettle();
+    final readsAfterClose = services.cachedReads;
+    services.pendingKeep!.complete(true);
+    await tester.pumpAndSettle();
+    expect(services.cachedReads, greaterThan(readsAfterClose));
+  });
+
+  testWidgets('saving a cached item promotes it into the visible library', (
+    tester,
+  ) async {
+    final services = _FakeServices()
+      ..allAssets = const [
+        MemeAsset(
+          id: 'existing-library',
+          title: 'Existing library item',
+          origin: 'library',
+          format: 'PNG',
+        ),
+      ]
+      ..cached = const [
+        MemeAsset(
+          id: 'cache-promote',
+          title: 'Promote me',
+          origin: 'cache',
+          format: 'PNG',
+        ),
+      ];
+    await openApp(tester, services);
+    await tester.tap(find.byKey(const ValueKey('nav-all')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Promote me'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('내 짤에 저장'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('미리보기 닫기'));
+    await tester.pumpAndSettle();
+    expect(find.text('임시 저장'), findsNothing);
+    expect(find.text('Promote me'), findsOneWidget);
+  });
+
   testWidgets('preview shows a readable in-dialog copy confirmation', (
     tester,
   ) async {
@@ -502,6 +615,11 @@ class _FakeServices implements AppServices {
       format: 'GIF',
     ),
   ];
+  List<MemeAsset> cached = const [];
+  List<MemeAsset>? allAssets;
+  int keptCopies = 0;
+  int cachedReads = 0;
+  Completer<bool>? pendingKeep;
   List<String> queries = const [];
 
   @override
@@ -515,7 +633,25 @@ class _FakeServices implements AppServices {
   }) async {
     if (recentOnly) return recent;
     if (favoritesOnly) return favorites;
-    return [libraryAsset];
+    return allAssets ?? [libraryAsset];
+  }
+
+  @override
+  Future<List<MemeAsset>> cachedLibrary({
+    MediaFilter filter = MediaFilter.all,
+  }) async {
+    cachedReads++;
+    return cached;
+  }
+
+  @override
+  Future<bool> copyAndKeep(
+    MediaFile file,
+    Future<bool> Function(MediaFile) copy,
+  ) async {
+    final copied = await copy(file);
+    if (copied) keptCopies++;
+    return copied ? (pendingKeep?.future ?? true) : false;
   }
 
   @override
@@ -576,7 +712,12 @@ class _FakeServices implements AppServices {
     String? familyName,
     List<MemeTag> tags = const [],
     List<String> aliases = const [],
-  }) async => asset;
+  }) async {
+    final saved = file.asset.copyWith(origin: 'library');
+    allAssets = [...?allAssets, saved];
+    cached = cached.where((item) => item.id != file.asset.id).toList();
+    return saved;
+  }
 
   @override
   Future<SearchResponse> search(SearchRequest request) async {
