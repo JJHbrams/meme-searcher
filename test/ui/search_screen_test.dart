@@ -457,6 +457,78 @@ void main() {
     expect(find.textContaining('Temporary '), findsNWidgets(7));
   });
 
+  testWidgets('selection delete spans cache and library with cancellation', (
+    tester,
+  ) async {
+    final services = _FakeServices()
+      ..cached = const [
+        MemeAsset(id: 'cache-delete', title: 'Cache delete', origin: 'cache'),
+      ]
+      ..allAssets = const [
+        MemeAsset(
+          id: 'library-delete',
+          title: 'Library delete',
+          origin: 'library',
+        ),
+      ];
+    await openApp(tester, services);
+    await tester.tap(find.byKey(const ValueKey('nav-all')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('select-delete')));
+    await tester.pump();
+    await tester.tap(find.text('Cache delete'));
+    await tester.pump();
+    await tester.tap(find.text('Library delete'));
+    await tester.pump();
+    expect(find.text('2개 선택'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('delete-selected')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('local-delete-cancel')));
+    await tester.pumpAndSettle();
+    expect(services.deletedAssetIds, isEmpty);
+    expect(find.text('Cache delete'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('delete-selected')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('confirm-delete')));
+    await tester.pumpAndSettle();
+    expect(
+      services.deletedAssetIds,
+      containsAll(['cache-delete', 'library-delete']),
+    );
+    expect(find.text('Cache delete'), findsNothing);
+    expect(find.text('Library delete'), findsNothing);
+    expect(find.text('2개 짤을 삭제했어요.'), findsOneWidget);
+  });
+
+  testWidgets('preview deletion remains available after media load failure', (
+    tester,
+  ) async {
+    final services = _FakeServices()..failOriginal = true;
+    await openApp(tester, services);
+    await tester.tap(find.text('Recent asset'));
+    await tester.pumpAndSettle();
+    final delete = find.byKey(const ValueKey('preview-delete'));
+    await tester.ensureVisible(delete);
+    await tester.tap(delete);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('confirm-delete')));
+    await tester.pumpAndSettle();
+    expect(services.deletedAssetIds, contains('recent-asset'));
+    expect(find.byType(Dialog), findsNothing);
+  });
+
+  testWidgets('web-only preview never offers local deletion', (tester) async {
+    final services = _FakeServices();
+    await openApp(tester, services);
+    await tester.tap(find.text('웹'));
+    await searchFromHome(tester, 'web result');
+    await tester.tap(find.text('Approved meme'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('preview-delete')), findsNothing);
+  });
+
   testWidgets('copy uses the durable copy callback', (tester) async {
     final services = _FakeServices();
     final actions = _RecordingActions();
@@ -619,6 +691,7 @@ class _FakeServices implements AppServices {
   ];
   List<MemeAsset> cached = const [];
   List<MemeAsset>? allAssets;
+  final deletedAssetIds = <String>[];
   int keptCopies = 0;
   int cachedReads = 0;
   Completer<bool>? pendingKeep;
@@ -644,6 +717,19 @@ class _FakeServices implements AppServices {
   }) async {
     cachedReads++;
     return cached;
+  }
+
+  @override
+  Future<int> deleteLocalAssets(Iterable<String> assetIds) async {
+    final ids = assetIds.toSet();
+    deletedAssetIds.addAll(ids);
+    cached = cached.where((asset) => !ids.contains(asset.id)).toList();
+    allAssets = (allAssets ?? [libraryAsset])
+        .where((asset) => !ids.contains(asset.id))
+        .toList();
+    recent = recent.where((asset) => !ids.contains(asset.id)).toList();
+    favorites = favorites.where((asset) => !ids.contains(asset.id)).toList();
+    return ids.length;
   }
 
   @override
