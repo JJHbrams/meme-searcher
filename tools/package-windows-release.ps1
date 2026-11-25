@@ -72,7 +72,8 @@ try {
     Copy-Item -LiteralPath (Join-Path $repoRoot 'README.md') -Destination (Join-Path $stageDir 'README.md') -Force
     Copy-Item -LiteralPath (Join-Path $repoRoot 'THIRD_PARTY_NOTICES.md') -Destination (Join-Path $stageDir 'THIRD_PARTY_NOTICES.md') -Force
     $readmeMedia = New-Item -ItemType Directory -Path (Join-Path $stageDir 'docs/media') -Force
-    foreach ($name in @('meme-drawer.jpg', 'home.png')) {
+    Copy-Item -LiteralPath (Join-Path $repoRoot 'docs/guide.md') -Destination (Join-Path $stageDir 'docs/guide.md')
+    foreach ($name in @('meme-drawer.jpg', 'home.png', 'search-results.png')) {
         Copy-Item -LiteralPath (Join-Path $repoRoot "docs/media/$name") -Destination $readmeMedia.FullName
     }
 
