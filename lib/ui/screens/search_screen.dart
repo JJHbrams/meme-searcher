@@ -821,14 +821,11 @@ class _SearchScreenState extends State<SearchScreen> {
                                 fit: BoxFit.cover,
                               ),
                             ),
-                            if (asset.origin != 'cache' ||
-                                asset.cacheDisplayLabel != null)
+                            if (asset.displayTitle case final label?)
                               Padding(
                                 padding: const EdgeInsets.all(8),
                                 child: Text(
-                                  asset.origin == 'cache'
-                                      ? asset.cacheDisplayLabel!
-                                      : asset.title,
+                                  label,
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                 ),
@@ -1411,12 +1408,9 @@ class _MemeCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                if (asset.origin != 'cache' ||
-                    asset.cacheDisplayLabel != null) ...[
+                if (asset.displayTitle case final label?) ...[
                   Text(
-                    asset.origin == 'cache'
-                        ? asset.cacheDisplayLabel!
-                        : asset.title,
+                    label,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(fontWeight: FontWeight.w700),
@@ -1789,13 +1783,10 @@ class _PreviewDialogState extends State<_PreviewDialog> {
                           fontWeight: FontWeight.w800,
                         ),
                       ),
-                      if (widget.asset.origin != 'cache' ||
-                          widget.asset.cacheDisplayLabel != null) ...[
+                      if (widget.asset.displayTitle case final label?) ...[
                         const SizedBox(height: 5),
                         Text(
-                          widget.asset.origin == 'cache'
-                              ? widget.asset.cacheDisplayLabel!
-                              : widget.asset.title,
+                          label,
                           style: Theme.of(context).textTheme.titleLarge,
                         ),
                         const SizedBox(height: 5),

@@ -19,6 +19,7 @@ add_custom_target(generate_meme_version_resource ALL
 # Any new source files that you add to the application should be added here.
 add_executable(${BINARY_NAME} WIN32
   "flutter_window.cpp"
+  "graphics_compatibility.cpp"
   "main.cpp"
   "tray_icon.cpp"
   "utils.cpp"

@@ -189,7 +189,7 @@ void main() {
         previewOnly: false,
       );
       await Future<void>.delayed(const Duration(milliseconds: 2));
-      final second = await store.cacheMedia(
+      await store.cacheMedia(
         _media([2], 'second'),
         previewOnly: false,
       );
@@ -213,13 +213,13 @@ void main() {
       origin: 'cache',
       title: '이전 GIF 짤 · aaaaaaaa',
     );
-    expect(asset.cacheDisplayLabel, isNull);
+    expect(asset.displayTitle, isNull);
     expect(
       MemeAsset(
         id: 'cache:hash',
         origin: 'cache',
         title: 'aaaaaaaa.png',
-      ).cacheDisplayLabel,
+      ).displayTitle,
       isNull,
     );
   });

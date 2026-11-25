@@ -164,6 +164,7 @@ class MemeAsset {
   String get primaryEngine => engines.isEmpty ? '' : engines.first;
 
   bool get hasGeneratedCacheTitle {
+    if (origin != 'cache') return false;
     final value = title.trim();
     return value.isEmpty ||
         RegExp(
@@ -175,7 +176,8 @@ class MemeAsset {
 
   /// The query is only a label for temporary cache cards. Live results and
   /// permanent library entries retain their provider or user-assigned title.
-  String? get cacheDisplayLabel {
+  String? get displayTitle {
+    if (origin != 'cache') return title;
     final query = submittedQuery?.trim();
     if (query != null && query.isNotEmpty) return query;
     return hasGeneratedCacheTitle ? null : title.trim();

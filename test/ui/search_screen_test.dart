@@ -428,7 +428,8 @@ void main() {
         7,
         (index) => MemeAsset(
           id: 'cache-$index',
-          title: 'Temporary $index',
+          title: 'provider-file-$index.png',
+          submittedQuery: 'Temporary $index',
           origin: 'cache',
           format: 'PNG',
         ),
@@ -440,6 +441,7 @@ void main() {
     expect(find.text('임시 저장'), findsWidgets);
     expect(find.text('내 짤'), findsWidgets);
     expect(find.textContaining('Temporary '), findsNWidgets(6));
+    expect(find.textContaining('provider-file-'), findsNothing);
     expect(find.text('펼치기 (1)'), findsOneWidget);
     tester.view.physicalSize = const Size(390, 1800);
     await tester.binding.setSurfaceSize(const Size(390, 1800));

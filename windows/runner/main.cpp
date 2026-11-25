@@ -2,41 +2,16 @@
 #include <flutter/flutter_view_controller.h>
 #include <windows.h>
 
-#include <string_view>
-
 #include "flutter_window.h"
+#include "graphics_compatibility.h"
 #include "utils.h"
 
 namespace {
 constexpr wchar_t kAppTitle[] = L"Meme Snatcher";
 
-bool HasAffectedDisplayDriver() {
-  // WER recorded repeated nvwgf2umx.dll crashes on this driver. Use Skia's
-  // presentation path on matching systems and the engine default elsewhere.
-  constexpr std::wstring_view kMachine = L"\\Registry\\Machine\\";
-  constexpr std::wstring_view kNvidia = L"PCI\\VEN_10DE&";
-  for (DWORD index = 0;; ++index) {
-    DISPLAY_DEVICEW display{};
-    display.cb = sizeof(display);
-    if (!EnumDisplayDevicesW(nullptr, index, &display, 0)) return false;
-    if (!(display.StateFlags & DISPLAY_DEVICE_ATTACHED_TO_DESKTOP) ||
-        _wcsnicmp(display.DeviceID, kNvidia.data(), kNvidia.size()) != 0 ||
-        _wcsnicmp(display.DeviceKey, kMachine.data(), kMachine.size()) != 0) {
-      continue;
-    }
-    wchar_t version[64]{};
-    DWORD bytes = sizeof(version);
-    if (RegGetValueW(HKEY_LOCAL_MACHINE, display.DeviceKey + kMachine.size(),
-                     L"DriverVersion", RRF_RT_REG_SZ, nullptr, version,
-                     &bytes) == ERROR_SUCCESS &&
-        std::wstring_view(version) == L"32.0.16.1088") {
-      return true;
-    }
-  }
-}
-
-bool StartOrActivate(FlutterWindow& window) {
-  const auto create = [&window]() {
+bool StartOrActivate(FlutterWindow& window, bool software_adapter) {
+  const auto create = [&window, software_adapter]() {
+    ScopedWarpProfile profile(software_adapter);
     return window.Create(kAppTitle, {10, 10}, {1280, 720});
   };
   if (IsHeadlessTestMode()) return create();
@@ -74,7 +49,8 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   const HRESULT ole_status = ::OleInitialize(nullptr);
 
   flutter::DartProject project(L"data");
-  if (HasAffectedDisplayDriver()) {
+  const bool software_adapter = HasAffectedDisplayDriver();
+  if (software_adapter) {
     project.set_impeller_switch(flutter::ImpellerSwitch::Disabled);
   }
 
@@ -84,7 +60,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   project.set_dart_entrypoint_arguments(std::move(command_line_arguments));
 
   FlutterWindow window(project);
-  const bool started = StartOrActivate(window);
+  const bool started = StartOrActivate(window, software_adapter);
   if (started && window.GetHandle()) {
     window.SetQuitOnClose(true);
 

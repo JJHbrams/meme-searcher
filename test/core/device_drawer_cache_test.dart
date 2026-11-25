@@ -123,7 +123,7 @@ void main() {
       );
       final cached = (await app.cachedLibrary()).single;
       expect(cached.submittedQuery, 'whoopah');
-      expect(cached.cacheDisplayLabel, 'whoopah');
+      expect(cached.displayTitle, 'whoopah');
       expect(downloads.downloads['https://example.test/original.gif'], 1);
     },
   );
