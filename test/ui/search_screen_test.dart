@@ -101,6 +101,13 @@ void main() {
   testWidgets('first run can be deferred and reopened from settings', (
     tester,
   ) async {
+    const channel = MethodChannel(MediaActions.channelName);
+    final messenger = tester.binding.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      expect(call.method, 'getAppVersion');
+      return '2.4.6.37';
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
     final services = _FakeServices()..deferred = false;
     await openApp(tester, services);
     expect(find.text('Google 이미지 검색 연결'), findsOneWidget);
@@ -113,6 +120,7 @@ void main() {
     await tester.tap(find.text('설정'));
     await tester.pumpAndSettle();
     expect(find.text('API 키 페이지 열기'), findsOneWidget);
+    expect(find.text('Meme Snatcher · v2.4.6.37'), findsOneWidget);
   });
 
   testWidgets('clipboard connection only imports a key on request', (

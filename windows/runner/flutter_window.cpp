@@ -16,6 +16,7 @@
 #include <vector>
 
 #include "flutter/generated_plugin_registrant.h"
+#include "meme_version.rc2"
 
 namespace {
 
@@ -477,6 +478,10 @@ bool FlutterWindow::OnCreate() {
           &flutter::StandardMethodCodec::GetInstance());
   media_actions_channel_->SetMethodCallHandler(
       [this](const auto& call, auto result) {
+        if (call.method_name() == "getAppVersion") {
+          result->Success(flutter::EncodableValue(std::string(VERSION_AS_STRING)));
+          return;
+        }
         const HWND owner = flutter_controller_ && flutter_controller_->view()
                                ? flutter_controller_->view()->GetNativeWindow()
                                : nullptr;

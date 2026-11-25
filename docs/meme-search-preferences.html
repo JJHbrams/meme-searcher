@@ -1,0 +1,311 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Meme Snatcher · 밈 사전과 검색 취향</title><style>
+*{box-sizing:border-box}html{color-scheme:light;background:#eeeae0;scroll-behavior:smooth}body{margin:0;color:#212720;font:16px/1.65 "Malgun Gothic","Segoe UI",sans-serif;word-break:keep-all;overflow-wrap:anywhere}main{width:min(1012px,100%);margin:auto;background:#fffdf6;padding:44px clamp(18px,5vw,68px) 58px;border-top:7px solid #344621}
+header{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:6px;border-bottom:1px solid #cbd1bf;padding:0 0 15px;color:#48523c;font-size:13px;letter-spacing:.02em}header strong{font:800 19px/1.2 "Segoe UI",sans-serif;color:#253119}h1{margin:34px 0;font-size:clamp(30px,4vw,47px);line-height:1.2;letter-spacing:-.065em;max-width:20em}h2{margin:43px 0 13px;border-top:2px solid #293827;padding-top:17px;color:#243420;font-size:26px;letter-spacing:-.05em}h3{margin:28px 0 8px;font-size:20px;letter-spacing:-.045em}p{margin:10px 0 15px}ul{padding-left:1.4em}li{margin:.34em 0}a{color:#395b2a;text-underline-offset:3px}a:hover{color:#17280f}code{font: .91em "Consolas","Malgun Gothic",monospace;background:#eef2e5;padding:1px 4px;border-radius:3px}strong,b{font-weight:720}
+.summary{background:#263325;color:#f3f5ed;padding:17px 23px;border-radius:8px}.summary h2{color:#d7f99d;border:0;margin:0 0 6px;padding:0;font-size:19px}.summary dl{margin:0}.summary dl div{display:grid;grid-template-columns:8.4em 1fr;gap:10px;padding:5px 0;border-top:1px solid #40513c}.summary dt{color:#c1d7ad;font-size:.84em;padding-top:3px}.summary dd{margin:0}.summary code{background:#42513c;color:white}
+.table-wrap{max-width:100%;overflow-x:auto;border:1px solid #d7d9cc;border-radius:6px;margin:10px 0 15px}table{width:100%;border-collapse:collapse;text-align:left;font-size:.92em}th{background:#e3ecd7;color:#20301c;font-weight:700}td,th{padding:9px 12px;vertical-align:top}td{border-top:1px solid #dddcd1}tbody tr:nth-child(even){background:#f5f5ed}td:first-child{font-weight:650}img{width:130px;max-width:100%;height:88px;object-fit:contain}table:has(img) td,table:has(img) th{text-align:center;width:50%}.flow{border:1px solid #bdc9ae;border-radius:7px;padding:13px 19px;background:#f1f5e8;margin:14px 0}.phase{text-align:center;padding:5px 0}.phase b{color:#678449}.branches{display:grid;grid-template-columns:repeat(3,1fr);gap:5px;text-align:center}.branches div{background:#e1ebd2;border:1px solid #afbf9e;border-radius:4px;padding:5px 2px}.branches small{display:block}.branches:before,.branches:after{content:'↓';grid-column:1/-1;color:#4c6641;line-height:1}
+@media(max-width:620px){body{font-size:15px}h2{font-size:23px}.summary{padding:14px}.summary dl div{grid-template-columns:1fr;gap:0}.summary dt{padding:0}td,th{padding:7px;min-width:65px}.branches small{font-size:12px}}
+@media print{html,main{background:white}main{padding:0;width:auto;border-top:0}.summary{background:white;color:#111;border:1px solid #999}.summary h2,.summary dt{color:#222}.summary dl div{border-color:#ddd}.table-wrap{overflow:visible}tr,.flow,h3{break-inside:avoid}h2,h3{break-after:avoid}}
+</style></head><body><main><header><strong>Meme Snatcher</strong><span>검색 품질 검토 · v1.3.0.21 · 2026.11.25</span></header><h1>같은 대사에서 내 취향의 짤을 먼저 찾으려면</h1>
+<section class="summary"><h2>한눈에 보기</h2><dl><div><dt>목적</dt><dd>국내·해외 밈을 담은 지식 DB로 웹 검색에서 일반 이미지를 줄이고, 관련도 높은 짤 사이에서 사용자 취향을 반영하는 방법을 검토한다.</dd></div><div><dt>현재 상태</dt><dd>Windows v1.3.0.21의 코드·번들·격리된 로컬 검색을 확인했다.</dd></div><div><dt>핵심 결론</dt><dd>검색 품질의 첫 과제는 일반 사진과 밈을 구별하는 일이다. 개인화는 그 뒤에 적용한다.</dd></div><div><dt>원인 또는 판단 근거</dt><dd>현재 카탈로그는 3개 계열의 예시다. 미등록 영어 검색에 일반적인 밈 확장이 없고, 웹 후보에서 밈 단서를 판단하는 규칙도 제한적이다.</dd></div><div><dt>결정</dt><dd>제품에서 말하는 ‘밈사전’은 국내·해외 밈의 이름·대사·템플릿·파생 관계를 연결한 DB다. 버전형 SQLite 사전과 로컬 규칙 정렬을 구현 후보로 권한다.</dd></div><div><dt>다음 행동</dt><dd>국내·해외 자료 표본으로 후보 DB를 만들고, 기존 검색과 동일한 결과에서 일반 이미지 오탐과 미등록 밈 누락을 비교한다.</dd></div><div><dt>최종 갱신</dt><dd>2026-11-25 · 릴리스 커밋 <code>930172b</code></dd></div></dl></section>
+<h2>질문</h2>
+<p><strong>처음 보는 밈도 일반 이미지에 묻히지 않게 할 수 있을까?</strong> 검색 결과에 붙은 대사·출처·템플릿 단서를 기존 사전과 대조하고, 새로운 표현을 가진 후보도 검색 의도와 맞으면 남기는 것이 목표다.</p>
+<p><strong>“좋다 지금 간다 기다려라”를 입력한 두 사람이 서로 다른 짤을 원한다면?</strong> 한 사람은 케장콘 원본을, 다른 사람은 헬다이버즈 패러디를 원한다. 이 사례로 사전, 검색 조건, 취향이 각각 무엇을 결정해야 하는지 살펴봤다.</p>
+<h2>짧은 답</h2>
+<ul>
+<li><strong>대량 수집의 단위는 밈 항목과 그 근거다.</strong> 해외 원명·한국어 별칭·사용 상황·템플릿·변형 관계를 연결하면, 같은 파일을 아직 갖고 있지 않아도 검색 단서를 얻을 수 있다.</li>
+<li><strong>검색어는 후보를 모으고 태그는 범위를 좁힌다.</strong> 현재 로컬 태그가 계열 별칭까지 읽는 예외가 있다. <strong>그중 어떤 버전을 먼저 볼지</strong>는 사용자의 선택 기록으로 정할 수 있다.</li>
+<li><strong>내가 뭐라고 부르는지</strong>는 별도 문제다. 예컨대 사용자가 ‘출동짤’을 특정 짤의 내 별칭으로 지정하면, 원래 제목을 몰라도 다음에 바로 찾을 수 있다.</li>
+</ul>
+<h2>현재 검색의 동작 근거</h2>
+<p>릴리스의 카탈로그와 수집·정렬 코드를 읽고, 기본 제공 짤만 넣은 새 라이브러리에서 같은 검색을 반복했다.</p>
+<h3>사전에 들어 있는 밈</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>밈 계열</th>
+<th>기본 제공 변형</th>
+<th>인식하는 표현</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>너클즈 승인</td>
+<td>도장 GIF, 긴 버전 GIF</td>
+<td><code>승인</code>, <code>너클즈</code>, <code>approved</code>, <code>knuckles</code></td>
+</tr>
+<tr>
+<td>좋다 지금 간다 기다려라</td>
+<td>케장콘 PNG, 헬다이버즈 2 PNG</td>
+<td>원 대사, <code>케장콘</code>, <code>케쟝콘</code>. ‘비슷한 문구 포함’을 켜면 <code>내가 간다 기다려라</code>, <code>당장 간다 기다려라</code>도 같은 계열</td>
+</tr>
+<tr>
+<td>틀깨기!</td>
+<td>아로나 WEBP</td>
+<td><code>틀깨기</code>, <code>틀 깨기</code>, <code>mold breaker</code></td>
+</tr>
+</tbody>
+</table></div>
+<ul>
+<li>기본 사전은 <strong>3계열·5개 파일</strong>, 계열 별칭은 표기 기준 10개, 추가 유사 문구는 2개다.</li>
+<li>태그는 헬다이버즈·케장콘·너클즈·소닉·아로나 5개이고 입력 표기는 11개다.</li>
+<li>계열 인식은 공백·대소문자·<code>!</code>·<code>?</code>를 정리한 <strong>전체 문구 일치</strong>다. 등록되지 않은 단어도 일반 검색으로 넘어간다. <a href="https://github.com/JJHbrams/meme-searcher/blob/v1.3.0.21/lib/core/catalog.dart#L33">내장 사전</a> · <a href="https://github.com/JJHbrams/meme-searcher/blob/v1.3.0.21/lib/core/query_plan.dart#L47">검색어 해석</a></li>
+</ul>
+<h3>후보가 한 화면에 모이는 과정</h3>
+<div class="flow" aria-label="검색 경로">
+<div class="phase">대사 · #태그 · 형식 <b>→</b> 계열과 별칭 해석</div>
+<div class="branches"><div><b>내 짤</b><small>메타데이터 조건</small></div><div><b>Google</b><small>검색어 전달</small></div><div><b>네이버</b><small>검색 후 조건 재확인</small></div></div>
+<div class="phase">원본 URL 중복 병합 <b>→</b> 기본 정렬</div>
+<div class="phase">계열·GIF 검색의 웹 후보 일부만 픽셀 대조 <b>→</b> 통합 결과</div></div>
+
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>경로</th>
+<th>후보를 남기는 실제 규칙</th>
+<th>사용자가 알아둘 차이</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>내 짤</td>
+<td>계열이 같거나 핵심어를 모두 포함해야 한다. 입력한 태그도 모두 제목·계열·변형·별칭·태그명에서 찾아야 한다.</td>
+<td><code>GIF</code>와 <code>이미지</code>가 로컬 후보를 직접 거른다.</td>
+</tr>
+<tr>
+<td>Google 이미지</td>
+<td>SerpApi에 확장 검색어를 보낸다. GIF 선택 시 전용 검색 조건도 전송한다. 앱은 유효한 원본 URL이 있는 결과를 받는다.</td>
+<td>검색어와 태그가 결과 제목에 있는지 앱이 다시 검사하지 않는다.</td>
+</tr>
+<tr>
+<td>네이버 이미지</td>
+<td>제목·출처·원본 URL에서 태그 중 하나, 지정된 필수 문맥 전부, 핵심어 중 하나를 요구한다. 핵심어가 없으면 일반 문맥을 확인한다.</td>
+<td><code>승인</code>은 너클즈 도장 검색으로 확장되며 네이버 후보에는 <code>knuckles</code> 문맥도 필요하다.</td>
+</tr>
+<tr>
+<td>웹 결과 공통</td>
+<td>엔진당 최대 32개. 같은 원본 URL은 합친다. URL 조각은 무시하지만 쿼리 문자열은 보존한다.</td>
+<td>웹의 <code>이미지</code> 선택은 GIF를 일괄 제거하지 않는다. <code>GIF</code>에도 미확인 후보가 남을 수 있다.</td>
+</tr>
+</tbody>
+</table></div>
+<p><a href="https://github.com/JJHbrams/meme-searcher/blob/v1.3.0.21/lib/core/device_app_services.dart#L87">로컬·웹 실행 경로</a> · <a href="https://github.com/JJHbrams/meme-searcher/blob/v1.3.0.21/lib/core/device_app_services.dart#L275">로컬 필터</a> · <a href="https://github.com/JJHbrams/meme-searcher/blob/v1.3.0.21/lib/core/web_collectors.dart#L142">Google 수집</a> · <a href="https://github.com/JJHbrams/meme-searcher/blob/v1.3.0.21/lib/core/web_collectors.dart#L327">네이버 필터</a></p>
+<p><strong>무엇이 위로 오는가</strong></p>
+<ul>
+<li>제목·출처·원본 URL에서 핵심어는 항목당 +18점, 태그 +10점, 문맥 +7점. GIF 단서는 +5점, 상업성 단서는 −250점, GIF 검색에서 움직임 확인은 +110점.</li>
+<li>동점 비교 순서는 공급자 순위, 엔진명, 원본 URL이다. 즐겨찾기 여부는 정렬 뒤에 결과에 붙는다. <a href="https://github.com/JJHbrams/meme-searcher/blob/v1.3.0.21/lib/core/ranking_service.dart#L74">점수와 동점 처리</a> · <a href="https://github.com/JJHbrams/meme-searcher/blob/v1.3.0.21/lib/core/device_app_services.dart#L163">즐겨찾기 표시</a></li>
+</ul>
+<p><strong>픽셀 대조의 역할</strong></p>
+<ul>
+<li>기준 이미지 지문 3개. ‘지금 간다’ 계열은 헬다이버즈 태그가 있어야 해당 지문을 쓸 수 있다.</li>
+<li>계열 또는 GIF를 웹과 함께 검색하면 엔진을 번갈아 최대 12개 후보를 검사한다. 일치한 후보는 <code>220 + 반올림(일치도 × 100)</code>점 가산. 대조 대상 밖이거나 불일치한 짤도 목록에 남는다. <a href="https://github.com/JJHbrams/meme-searcher/blob/v1.3.0.21/assets/meme-signatures.json">기준 지문</a> · <a href="https://github.com/JJHbrams/meme-searcher/blob/v1.3.0.21/lib/core/visual_matcher.dart#L70">이미지 대조</a> · <a href="https://github.com/JJHbrams/meme-searcher/blob/v1.3.0.21/lib/core/device_app_services.dart#L190">검사 예산</a></li>
+</ul>
+<h3>실제 검색에서 갈린 결과</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>케장콘</th>
+<th>헬다이버즈 2 패러디</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><img alt="케장콘 원본" src="../assets/seed-assets/kejang-coming-ruliweb.png" /></td>
+<td><img alt="헬다이버즈 패러디" src="../assets/seed-assets/helldivers-coming-arca.png" /></td>
+</tr>
+</tbody>
+</table></div>
+<p>새 임시 라이브러리에 번들 5장을 넣고 <strong>내 짤 · 형식 전체</strong>로 실행했다. 아래 순서는 이번 실행의 관측값이다. 두 변형의 제목은 같으므로 변형명으로 표기했다.</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>입력·조작</th>
+<th>실제 결과 순서</th>
+<th>무엇을 보여주나</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>좋다 지금 간다 기다려라</code></td>
+<td>케장콘 18점 → 헬다이버즈 18점</td>
+<td>기본 관련도 동점</td>
+</tr>
+<tr>
+<td>헬다이버즈에 ☆ 추가 후 같은 검색</td>
+<td>케장콘 18점 → 헬다이버즈 18점</td>
+<td>별을 붙여도 검색 순서는 그대로</td>
+</tr>
+<tr>
+<td>같은 대사 + <code>#헬다2</code></td>
+<td>헬다이버즈 1장, 25점</td>
+<td>고유 태그명으로 좁혀짐</td>
+</tr>
+<tr>
+<td><code>케장콘</code> / <code>#케장콘</code></td>
+<td>각각 케장콘 → 헬다이버즈, 둘 다 0점</td>
+<td>대사는 계열 별칭에 일치. 태그 검색도 두 변형에 복사된 계열 별칭 ‘케장콘’을 읽음</td>
+</tr>
+<tr>
+<td><code>내가 간다 기다려라</code></td>
+<td>비슷한 문구 끔 0장 → 켬 2장</td>
+<td>사전에 등록된 유사 문구만 확장</td>
+</tr>
+<tr>
+<td><code>승인</code> / <code>도무지없는검색어</code> / <code>ㅋㅋ</code></td>
+<td>승인 GIF 2장 / 0장 / 번들 전체 5장</td>
+<td>‘ㅋㅋ’는 인식 가능한 핵심어가 없어 로컬의 모든 후보가 통과</td>
+</tr>
+</tbody>
+</table></div>
+<p>재현 조건은 릴리스 코드, 모의 보안 저장소, 검색 범위 <code>library</code>이며 웹 수집기는 호출 시 실패하도록 격리했다. 웹 수집·정렬·시각 판별은 기존 고정 응답 및 이미지 테스트 11개가 통과했다. 실제 웹 결과 순위나 SerpApi 검색 횟수는 이번 확인에 쓰지 않았다. <a href="https://github.com/JJHbrams/meme-searcher/blob/v1.3.0.21/lib/core/device_app_services.dart#L275">로컬 매칭 구현</a> · <a href="https://github.com/JJHbrams/meme-searcher/blob/v1.3.0.21/test/core/web_collectors_test.dart">수집기 테스트</a> · <a href="https://github.com/JJHbrams/meme-searcher/blob/v1.3.0.21/test/core/ranking_service_test.dart">정렬 테스트</a> · <a href="https://github.com/JJHbrams/meme-searcher/blob/v1.3.0.21/test/core/visual_matcher_test.dart">시각 판별 테스트</a></p>
+<h2>취향을 잘못 읽기 쉬운 지점</h2>
+<ul>
+<li><strong>홈의 ‘최근 사용’은 열어 본 기록이다.</strong> 미리보기를 열 때 저장되므로 잘못 눌렀거나 확인하고 닫은 짤도 들어간다. 최근 목록은 최대 100개 ID를 중복 없이 유지하고, 최근 검색어도 최대 5개를 중복 없이 저장한다. 이 목록으로 과거 복사 빈도를 복원할 수 없다. <a href="https://github.com/JJHbrams/meme-searcher/blob/v1.3.0.21/lib/ui/screens/search_screen.dart#L294">미리보기 진입</a> · <a href="https://github.com/JJHbrams/meme-searcher/blob/v1.3.0.21/lib/core/local_library_store.dart#L123">최근 기록</a></li>
+<li><strong>웹 결과는 태그가 비어 있을 수 있다.</strong> 수집기가 채우는 것은 주로 제목·URL·엔진 순위다. 헬다이버즈를 좋아한다는 이유만으로 태그 없는 웹 이미지까지 헬다이버즈라고 판정하면 오분류가 생긴다. <a href="https://github.com/JJHbrams/meme-searcher/blob/v1.3.0.21/lib/core/web_collectors.dart#L196">웹 결과 모델 생성</a></li>
+<li><strong>후보의 순서를 바꿔도 없는 짤은 생기지 않는다.</strong> 새 커뮤니티 밈이나 자신만의 표현을 찾는 문제에는 ‘내 별칭’ 또는 사용자가 선택하는 검색어 확장이 별도로 필요하다.</li>
+</ul>
+<h2>권고 · 취향을 반영하는 순서</h2>
+<p>우선순위는 국내·해외 밈사전 구축, 고정된 웹 후보로 필터 검증, 비슷한 관련도의 후보 간 개인화 순이다.</p>
+<h3>제품에서 말하는 밈사전</h3>
+<p>대사 한 줄이나 틀린 철자만 기억해도 대표 장면을 찾도록 돕는 검색 지도다. 각 항목에는 후보를 찾을 때 보탤 단서와, 찾은 후보 중 원본·패러디·일반 이미지를 구별할 단서를 기록한다.</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>DB에 남길 것</th>
+<th>검색에 쓰는 방법</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>밈 계열, 한국어·원어 이름, 별칭, 대사</td>
+<td>실제로 같은 이름을 가리키는지 출처와 함께 기록. 일반명사와 같은 짧은 별칭은 단독 일치의 영향 축소</td>
+</tr>
+<tr>
+<td>템플릿, 변형, 등장 캐릭터, 작품·팬덤, 쓰이는 상황</td>
+<td>‘별칭’, ‘이 템플릿의 패러디’, ‘같은 상황에서 쓰임’을 각각 다른 관계로 저장. 같은 팬덤이라는 이유로 서로 다른 짤을 병합하는 오류 방지</td>
+</tr>
+<tr>
+<td>출처, 수집·검토 시점, 이용 조건, 대표 이미지 지문</td>
+<td>중복과 충돌을 추적하고 근거 있는 항목만 배포. 이미지 원본을 함께 배포할 때는 해당 파일의 이용 조건도 별도 기록</td>
+</tr>
+</tbody>
+</table></div>
+<ul>
+<li><strong>수집과 배포.</strong> 배포자 쪽에서 허용된 덤프를 정기적으로 받아 출처별 원본 ID를 보존하고 중복·이름 충돌을 처리한다. 검토된 메타데이터를 버전이 붙은 SQLite 파일로 앱에 포함한다. 원본 미디어는 배포 가능한 것만 선택한다. 사용자 PC는 사전 갱신분만 받을 수 있다.</li>
+<li><strong>자료 후보.</strong> 해외 기초 데이터로는 CC0 구조화 덤프가 있는 Wikidata를 쓸 수 있다. 한국어 KoCulture-Descriptions는 503행의 <strong>텍스트</strong> 자료이며 공개 표기는 CC BY-NC-SA 4.0이다. 두 자료가 국내 커뮤니티별 변형을 얼마나 담고 있는지는 아직 측정하지 않았다. <a href="https://www.wikidata.org/wiki/Wikidata:Database_download">Wikidata 덤프</a> · <a href="https://huggingface.co/datasets/huggingface-KREW/KoCulture-Descriptions">한국어 데이터 카드</a></li>
+<li><strong>검색 예시.</strong> <code>승인</code>만으로는 결재 도장 사진과 너클즈 도장짤을 구별하기 어렵다. 제목·캡션에 ‘너클즈/Knuckles’와 ‘승인/Approved’가 함께 있거나 검증된 템플릿 지문이 맞으면 우선한다. 판매 페이지의 도장 상품은 낮춘다. 캐릭터명 하나로 평범한 게임 스크린샷까지 올리지는 않는다.</li>
+<li><strong>대표 장면을 찾는 기준.</strong> <code>망했어요</code>만 입력해도 ‘마인 심어놓고’라는 중계 대사로 스타크래프트 원본 장면을 찾는 것이 목표다. 원본 장면을 인용한 패러디가 그다음이고, 실패를 표현하는 다른 반응짤은 그 뒤다. 평가할 때는 원본이 검색 후보에 들어왔는지와 들어온 뒤 몇 위인지 따로 확인한다. <a href="https://namu.wiki/w/망했어요">사용자가 제시한 장면</a></li>
+<li><strong>오타를 알아보는 기준.</strong> <code>ask camly</code>와 <code>asked calmy</code>로도 ‘Dumbledore Asked Calmly’ 장면을 찾는 것이 목표다. 비슷한 철자는 후보를 넓히는 데 쓰고, 덤블도어나 해당 대사의 단서가 있는 결과를 먼저 보여준다.</li>
+<li><strong>미등록 밈.</strong> 용어가 사전에 없어도 검색어와 맞는 캡션, 기존 템플릿의 변형, 서로 다른 출처의 반응짤 사용례처럼 독립적인 단서가 겹치면 후보로 유지한다. 커뮤니티 도메인 하나나 복제 페이지 여러 장은 약한 근거다. 텍스트도 템플릿 단서도 없는 완전히 새로운 그림은 판별이 어렵다.</li>
+<li><strong>평가.</strong> 국내·해외와 등록·미등록을 나누고, 새 밈은 한 계열 전체를 사전에서 빼 둔 채 평가한다. 같은 웹 후보를 기존 규칙과 새 규칙으로 각각 정렬해 상위 10개에 섞인 일반 사진 비율, 그리고 사람이 골라 둔 관련 밈 중 상위 10개에 살아남은 비율을 함께 본다. 사전을 키울수록 미등록 밈이 더 많이 사라진다면 그 규칙은 채택을 보류한다.</li>
+</ul>
+<h3>개인화를 얹는 순서</h3>
+<p><strong>먼저 고칠 필터</strong></p>
+<ul>
+<li>로컬에서 <code>#케장콘</code>처럼 사전에 등록된 태그를 입력하면, 후보의 실제 <code>tags.id</code>와 비교하는 안을 권한다.</li>
+<li>일반 입력 <code>케장콘</code>은 지금처럼 두 버전을 찾게 둔다. 모르는 태그의 텍스트 검색은 유지한다.</li>
+<li>웹 후보는 태그 정보가 빈 경우가 많으므로 같은 강제 조건을 일괄 적용하면 누락이 생긴다.</li>
+</ul>
+<h3>어떤 신호를 어디에 쓸까</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>신호</th>
+<th>취향으로 해석하는 방법</th>
+<th>적용 시점</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>즐겨찾기</td>
+<td>사용자가 직접 고른 해당 짤을 우선. 별을 해제하면 그 효과도 해제. 같은 계열 전체로 자동 확대하지 않는다.</td>
+<td>1차. 기존 데이터만으로 가능</td>
+</tr>
+<tr>
+<td>복사·보관 성공</td>
+<td>실제 성공한 동작만 기록. 같은 검색에서 버튼을 여러 번 눌러도 한 번만 반영. 여러 날 반복된 선택에 가중치를 주고 오래된 선택은 낮춘다.</td>
+<td>2차. 복사·저장 성공 시점에 새 기록 필요</td>
+</tr>
+<tr>
+<td>직접 붙인 태그·내 별칭</td>
+<td>사용자가 고른 태그나 별칭을 특정 짤 또는 계열에 연결. 일반 검색에서는 후보를 늘리고 명시적 태그를 붙이면 해당 조건을 우선.</td>
+<td>2차. 짤 상세 화면에서 수정·삭제 가능하게</td>
+</tr>
+<tr>
+<td>미리보기·검색어 입력</td>
+<td>탐색 기록으로만 사용. 검색하거나 열었다는 이유로 팬덤 취향을 추정하지 않는다.</td>
+<td>초기 개인화 점수에서 제외</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>첫 버전의 순서</strong></p>
+<ul>
+<li>기존 검색·중복 제거·픽셀 대조를 마친 후보에서 <strong>같은 기본 점수 안에서만</strong> 개인 우선순위를 적용하고, 그래도 같으면 기존 동점 정렬을 쓴다.</li>
+<li>예컨대 헬다이버즈판을 즐겨찾기한 사람에게는 18점 동점의 헬다이버즈판을 먼저 보여준다. 반대로 케장콘을 선호해도 <code>#헬다2</code>로 실행한 로컬 검색은 헬다이버즈 한 장 그대로다.</li>
+<li>이 방식은 검색어·후보 수·웹 요청 수를 보존한다. 즐겨찾기가 없는 첫 실행은 기존 순서를 쓴다. <a href="https://github.com/JJHbrams/meme-searcher/blob/v1.3.0.21/lib/core/ranking_service.dart#L42">적용할 정렬 지점</a></li>
+</ul>
+<p><strong>태그가 없는 웹 짤</strong></p>
+<ul>
+<li>처음에는 즐겨찾기한 <strong>그 원본</strong>만 알아보면 된다. 병합에 쓰는 정규화된 원본 URL을 로컬 식별자로 사용하고, 파일로 보관했다면 파일 해시와 연결한다.</li>
+<li>팬덤 단위 선호는 사용자가 붙인 태그처럼 근거가 있는 경우부터 확장한다.</li>
+<li>검색어가 취향에 맞게 바뀌길 원한다면 <code>헬다이버즈로 더 찾기</code>처럼 직접 누를 때 한 번 검색한다. 기본 검색에는 같은 SerpApi 호출만 쓴다.</li>
+</ul>
+<p><strong>사용자 제어</strong></p>
+<ul>
+<li><code>취향순 / 기본순</code>, <code>이 짤 덜 보기</code>, <code>취향 기록 초기화</code>를 제안한다. ‘덜 보기’는 해당 짤에만 적용하고 되돌릴 수 있게 한다.</li>
+<li>선호 기록은 기기 안에 보관한다. 현재는 즐겨찾기 변경 시 검색 캐시를 비운다. 후보 캐시와 표시 순서를 분리해 같은 후보의 개인 순위만 다시 계산하면, 별을 눌렀을 때 추가 웹 검색 없이 순서를 갱신할 수 있다. <a href="https://github.com/JJHbrams/meme-searcher/blob/v1.3.0.21/lib/core/device_app_services.dart#L91">현재 검색 캐시</a></li>
+</ul>
+<h3>적용 전에 확인할 조건</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>비교</th>
+<th>기대하는 결과</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>일반 입력 <code>케장콘</code> / 로컬 <code>#케장콘</code></td>
+<td>태그 보정 후 일반 입력은 두 장, 태그 입력은 케장콘 한 장. 취향을 달리해도 같은 후보 집합</td>
+</tr>
+<tr>
+<td>같은 두 후보, 케장 선호 / 헬다 선호 / 새 사용자</td>
+<td>앞의 두 프로필은 각각 선호 변형이 먼저, 새 사용자는 기본순과 동일</td>
+</tr>
+<tr>
+<td>반대 선호 + 명시적 태그·형식</td>
+<td>개인화 전후 후보 ID 집합 동일. 웹 수집기가 원래 허용한 미확인 결과는 별도 필터 품질로 평가</td>
+</tr>
+<tr>
+<td>별 해제·개인화 끄기·기록 초기화</td>
+<td>별 해제 시 해당 짤의 즐겨찾기 우선권 해제. 기본순은 모든 개인 가산을 끄고, 초기화는 학습 기록만 삭제하고 북마크는 보존</td>
+</tr>
+<tr>
+<td>동일 검색 후보로 두 정렬 비교</td>
+<td>원하는 짤의 순위, 첫 복사 성공까지 연 미리보기 수, 추가 SerpApi 호출 수를 비교. 마지막 값의 목표는 0</td>
+</tr>
+</tbody>
+</table></div>
+<h2>한계</h2>
+<ul>
+<li>위 비교는 <strong>구현 전 수용 기준</strong>이다. 실사용자의 선호도나 검색 성공률 개선 폭은 측정하지 않았다.</li>
+<li>동점 후보가 드문 검색에서는 1차 방식의 효과도 작다. 먼저 같은 점수의 후보가 있는 검색의 비율과 실제 선택 순위를 확인한 뒤, 필요할 때만 범위를 관련도 차이가 작은 후보까지 넓힌다.</li>
+</ul>
+<h2>변경 이력</h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>기준일</th>
+<th>내용</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>2026-11-25</td>
+<td>v1.3.0.21의 내장 사전·수집·필터·정렬 확인. 로컬 재현과 개인화 제안 작성</td>
+</tr>
+<tr>
+<td>2026-11-25</td>
+<td>제품 의도에 맞춰 대규모 국내·해외 밈 지식 DB, 미등록 밈 판별, 데이터 출처와 검색 품질 평가를 추가</td>
+</tr>
+</tbody>
+</table></div></main></body></html>
