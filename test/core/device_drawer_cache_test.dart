@@ -128,6 +128,43 @@ void main() {
     },
   );
 
+  test(
+    'cached submitted keywords survive restart and match local search',
+    () async {
+      final downloads = _Downloader({
+        'https://example.test/original.gif': _gifA,
+      });
+      final first = await _app(
+        root,
+        downloader: downloads,
+        naverSearch: (_) async => [_web('one', title: 'provider title')],
+      );
+      final response = await first.search(
+        const SearchRequest(
+          query: 'wapa~',
+          tags: ['friends'],
+          scope: SearchScope.web,
+        ),
+      );
+      await first.loadMedia(response.assets.single);
+
+      final restarted = await _app(root, downloader: downloads);
+      expect(
+        (await restarted.cachedLibrary()).single.submittedQuery,
+        'wapa~ #friends',
+      );
+      final local = await restarted.search(
+        const SearchRequest(
+          query: 'wapa~',
+          tags: ['friends'],
+          scope: SearchScope.library,
+        ),
+      );
+      expect(local.assets.single.title, 'provider title');
+      expect(local.assets.single.submittedQuery, 'wapa~ #friends');
+    },
+  );
+
   test('copy promotion gives native code a durable path and removes temporary entry', () async {
     final downloads = _Downloader({
       'https://example.test/original.gif': _gifA,

@@ -214,6 +214,14 @@ void main() {
       title: '이전 GIF 짤 · aaaaaaaa',
     );
     expect(asset.cacheDisplayLabel, isNull);
+    expect(
+      MemeAsset(
+        id: 'cache:hash',
+        origin: 'cache',
+        title: 'aaaaaaaa.png',
+      ).cacheDisplayLabel,
+      isNull,
+    );
   });
 }
 

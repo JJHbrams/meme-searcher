@@ -259,7 +259,8 @@ class _SearchScreenState extends State<SearchScreen> {
         if (!mounted || serial != _searchSerial) return;
         setState(() {
           _assets = items;
-          // The service owns cache recency (LRU) ordering.
+          // Cache cards retain their original insertion order; the service
+          // separately tracks access time for eviction.
           _cachedAssets = cached;
         });
       }
@@ -889,7 +890,7 @@ class _SearchScreenState extends State<SearchScreen> {
                       ),
                       SizedBox(height: 4),
                       Text(
-                        '256 MiB까지 보관해요. 복사한 짤은 아래 내 짤에 남아요.',
+                        '256 MiB까지 보관해요. 새로 저장한 순서로 보여주고, 오래 안 연 짤부터 정리해요.',
                         style: TextStyle(color: MemeTheme.muted),
                       ),
                     ],

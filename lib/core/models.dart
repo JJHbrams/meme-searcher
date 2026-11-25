@@ -166,7 +166,10 @@ class MemeAsset {
   bool get hasGeneratedCacheTitle {
     final value = title.trim();
     return value.isEmpty ||
-        RegExp(r'^[a-f0-9]{8,64}$', caseSensitive: false).hasMatch(value) ||
+        RegExp(
+          r'^[a-f0-9]{8,64}(?:\.[a-z0-9]+)?$',
+          caseSensitive: false,
+        ).hasMatch(value) ||
         RegExp(r'^이전\s+\S+\s+짤\s+·\s+[a-f0-9]{8,64}$').hasMatch(value);
   }
 

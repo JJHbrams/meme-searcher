@@ -136,11 +136,14 @@ class DeviceAppServices implements AppServices {
               asset.isGif,
         )
         .toList(growable: false);
-    // Keep the user's words (including selected tags) with anything that may
-    // be materialized into the drawer. Provider query rewrites are only for
-    // transport and must never become the cache's human-facing label.
+    // Only web candidates carry the user's exact words into a future cache
+    // record. A local cache search must not rewrite its original provenance.
     ranked = ranked
-        .map((asset) => asset.copyWith(submittedQuery: request.fullQuery))
+        .map(
+          (asset) => asset.isWeb
+              ? asset.copyWith(submittedQuery: request.fullQuery)
+              : asset,
+        )
         .toList(growable: false);
     if (request.scope != SearchScope.library &&
         (plan.familyId != null || request.filter == MediaFilter.gif)) {
@@ -394,7 +397,12 @@ class DeviceAppServices implements AppServices {
   Future<MediaFile?> _readLocal(MemeAsset asset, String path) async {
     try {
       final bytes = await File(path).readAsBytes();
-      await _store!.touchCached(path);
+      // A web candidate can resolve to an existing cache file. In that case
+      // refresh both LRU access and the exact query that produced this hit.
+      await _store!.touchCached(
+        path,
+        submittedQuery: asset.isWeb ? asset.submittedQuery : null,
+      );
       return MediaFile(
         bytes: bytes,
         path: path,

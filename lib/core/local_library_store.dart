@@ -475,13 +475,21 @@ class LocalLibraryStore {
         return _atPath(file, blob.path, previewOnly: previewOnly);
       });
 
-  Future<void> touchCached(String path) async {
+  Future<void> touchCached(String path, {String? submittedQuery}) async {
     final digest = _name(path)?.$1;
     if (digest == null || !_cache.containsKey(digest)) return;
     await _locked(() async {
       final record = _cache[digest];
       if (record == null || !p.equals(record.asset.filePath!, path)) return;
       record.access = DateTime.now();
+      final query = submittedQuery?.trim();
+      if (query != null && query.isNotEmpty) {
+        _cache[digest] = _CacheRecord(
+          record.asset.copyWith(submittedQuery: query),
+          record.size,
+          record.access,
+        );
+      }
       await _write();
     });
   }
