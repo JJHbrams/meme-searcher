@@ -10,6 +10,7 @@ import '../../core/models.dart';
 import '../../core/serpapi_account.dart';
 import '../../platform/media_actions.dart';
 import '../app_theme.dart';
+import 'magic_conch_screen.dart';
 import 'serpapi_settings_dialog.dart';
 import '../widgets/source_badge.dart';
 import '../widgets/tag_chip.dart';
@@ -200,7 +201,7 @@ class _SearchScreenState extends State<SearchScreen> {
     if (_scroll.hasClients) _scroll.jumpTo(0);
   }
 
-  Future<void> _changeNav(_NavMode value) {
+  Future<void> _changeNav(_NavMode value) async {
     _toTop();
     _searchController.clear();
     _tagController.clear();
@@ -211,7 +212,15 @@ class _SearchScreenState extends State<SearchScreen> {
     _navMode = value;
     _hasSearched = false;
     _assets = [];
-    return _loadPage();
+    if (value == _NavMode.conch) {
+      ++_searchSerial;
+      setState(() {
+        _loading = false;
+        _error = null;
+      });
+      return;
+    }
+    await _loadPage();
   }
 
   Future<void> _loadPage() async {
@@ -379,85 +388,88 @@ class _SearchScreenState extends State<SearchScreen> {
             quotaError: _serpApiQuotaError,
             onQuotaRefresh: _refreshSerpApiQuota,
           ),
-        Expanded(
-          child: CustomScrollView(
-            primary: home,
-            controller: home ? null : _scroll,
-            slivers: [
-              SliverPadding(
-                padding: EdgeInsets.fromLTRB(
-                  side,
-                  home ? 24 : 34,
-                  side,
-                  home ? 32 : 14,
-                ),
-                sliver: SliverList.list(
-                  children: [
-                    if (!home || !wide) ...[
-                      _Header(
-                        title: _hasSearched ? '검색 결과' : _navMode.label,
-                        assetCount: home || _loading ? null : _assets.length,
-                        onSettings: _openSettings,
-                        compact: !wide,
-                        quotaLabel: _serpApiQuotaLabel(),
-                        quotaLoading: _serpApiQuotaLoading,
-                        onQuotaRefresh: _refreshSerpApiQuota,
-                      ),
-                      SizedBox(height: home ? 12 : 30),
-                    ],
-                    _searchBox(),
-                    const SizedBox(height: 12),
-                    if (home) ...[
-                      Row(
-                        children: [
-                          Expanded(child: _scopeChoice()),
-                          const SizedBox(width: 8),
-                          IconButton(
-                            tooltip: _showSearchOptions
-                                ? '검색 옵션 접기'
-                                : '검색 옵션 열기',
-                            isSelected: _showSearchOptions,
-                            onPressed: () => setState(
-                              () => _showSearchOptions = !_showSearchOptions,
-                            ),
-                            icon: const Icon(Icons.tune),
-                          ),
-                        ],
-                      ),
-                      if (_showSearchOptions) ...[
-                        _similarChoice(),
-                        _formatChoice(),
+        if (_navMode == _NavMode.conch)
+          const Expanded(child: MagicConchScreen())
+        else
+          Expanded(
+            child: CustomScrollView(
+              primary: home,
+              controller: home ? null : _scroll,
+              slivers: [
+                SliverPadding(
+                  padding: EdgeInsets.fromLTRB(
+                    side,
+                    home ? 24 : 34,
+                    side,
+                    home ? 32 : 14,
+                  ),
+                  sliver: SliverList.list(
+                    children: [
+                      if (!home || !wide) ...[
+                        _Header(
+                          title: _hasSearched ? '검색 결과' : _navMode.label,
+                          assetCount: home || _loading ? null : _assets.length,
+                          onSettings: _openSettings,
+                          compact: !wide,
+                          quotaLabel: _serpApiQuotaLabel(),
+                          quotaLoading: _serpApiQuotaLoading,
+                          onQuotaRefresh: _refreshSerpApiQuota,
+                        ),
+                        SizedBox(height: home ? 12 : 30),
                       ],
-                      const SizedBox(height: 20),
-                      if (!_loading ||
-                          _recentAssets.isNotEmpty ||
-                          _recentQueries.isNotEmpty ||
-                          _favoriteAssets.isNotEmpty)
-                        ..._homeSections()
-                      else
-                        const Center(child: CircularProgressIndicator()),
-                    ] else ...[
-                      _scopeChoice(),
-                      if (_hasSearched) _similarChoice(),
+                      _searchBox(),
                       const SizedBox(height: 12),
-                      _formatChoice(),
-                      if (_hasSearched) ...[
+                      if (home) ...[
+                        Row(
+                          children: [
+                            Expanded(child: _scopeChoice()),
+                            const SizedBox(width: 8),
+                            IconButton(
+                              tooltip: _showSearchOptions
+                                  ? '검색 옵션 접기'
+                                  : '검색 옵션 열기',
+                              isSelected: _showSearchOptions,
+                              onPressed: () => setState(
+                                () => _showSearchOptions = !_showSearchOptions,
+                              ),
+                              icon: const Icon(Icons.tune),
+                            ),
+                          ],
+                        ),
+                        if (_showSearchOptions) ...[
+                          _similarChoice(),
+                          _formatChoice(),
+                        ],
+                        const SizedBox(height: 20),
+                        if (!_loading ||
+                            _recentAssets.isNotEmpty ||
+                            _recentQueries.isNotEmpty ||
+                            _favoriteAssets.isNotEmpty)
+                          ..._homeSections()
+                        else
+                          const Center(child: CircularProgressIndicator()),
+                      ] else ...[
+                        _scopeChoice(),
+                        if (_hasSearched) _similarChoice(),
                         const SizedBox(height: 12),
-                        _tagFilter(),
+                        _formatChoice(),
+                        if (_hasSearched) ...[
+                          const SizedBox(height: 12),
+                          _tagFilter(),
+                        ],
                       ],
+                      if (_error != null) ...[
+                        const SizedBox(height: 10),
+                        _InlineMessage(message: _error!, error: true),
+                      ],
+                      const SizedBox(height: 14),
                     ],
-                    if (_error != null) ...[
-                      const SizedBox(height: 10),
-                      _InlineMessage(message: _error!, error: true),
-                    ],
-                    const SizedBox(height: 14),
-                  ],
+                  ),
                 ),
-              ),
-              if (!home) _resultsGrid(wide),
-            ],
+                if (!home) _resultsGrid(wide),
+              ],
+            ),
           ),
-        ),
       ],
     );
     return Scaffold(
@@ -507,6 +519,11 @@ class _SearchScreenState extends State<SearchScreen> {
                   key: ValueKey('nav-recent'),
                   icon: Icon(Icons.history),
                   label: '최근',
+                ),
+                NavigationDestination(
+                  key: ValueKey('nav-conch'),
+                  icon: Icon(Icons.casino_outlined),
+                  label: '소라고동',
                 ),
               ],
             ),
@@ -858,7 +875,8 @@ enum _NavMode {
   home('홈'),
   all('전체'),
   favorites('즐겨찾기'),
-  recent('최근 사용');
+  recent('최근 사용'),
+  conch('마법의 소라고동');
 
   const _NavMode(this.label);
   final String label;
@@ -988,6 +1006,12 @@ class _SideRail extends StatelessWidget {
                     _railButton(Icons.grid_view_rounded, '전체', _NavMode.all),
                     _railButton(Icons.star_border, '즐겨찾기', _NavMode.favorites),
                     _railButton(Icons.history, '최근', _NavMode.recent),
+                    const Divider(),
+                    _railButton(
+                      Icons.casino_outlined,
+                      _NavMode.conch.label,
+                      _NavMode.conch,
+                    ),
                   ],
                 ),
               ),

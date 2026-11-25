@@ -59,6 +59,10 @@ add_subdirectory("runner")
 # them to the application.
 include(flutter/generated_plugins.cmake)
 
+# The WebView2 SDK places its loader beside the plugin DLL. Ship them together.
+list(APPEND PLUGIN_BUNDLED_LIBRARIES
+  "$<TARGET_FILE_DIR:webview_flutter_windows_plugin>/WebView2Loader.dll")
+
 
 # === Installation ===
 # Support files are copied into place next to the executable, so that it can
@@ -73,6 +77,10 @@ endif()
 
 set(INSTALL_BUNDLE_DATA_DIR "${CMAKE_INSTALL_PREFIX}/data")
 set(INSTALL_BUNDLE_LIB_DIR "${CMAKE_INSTALL_PREFIX}")
+
+install(FILES "${CMAKE_BINARY_DIR}/packages/Microsoft.Web.WebView2/LICENSE.txt"
+  "${CMAKE_BINARY_DIR}/packages/Microsoft.Web.WebView2/NOTICE.txt"
+  DESTINATION "${INSTALL_BUNDLE_DATA_DIR}/licenses/webview2" COMPONENT Runtime)
 
 install(TARGETS ${BINARY_NAME} RUNTIME DESTINATION "${CMAKE_INSTALL_PREFIX}"
   COMPONENT Runtime)

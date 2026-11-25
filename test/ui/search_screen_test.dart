@@ -9,6 +9,7 @@ import 'package:meme_searcher/core/models.dart';
 import 'package:meme_searcher/core/serpapi_account.dart';
 import 'package:meme_searcher/platform/media_actions.dart';
 import 'package:meme_searcher/ui/app_theme.dart';
+import 'package:meme_searcher/ui/screens/magic_conch_screen.dart';
 import 'package:meme_searcher/ui/screens/search_screen.dart';
 
 void main() {
@@ -239,6 +240,34 @@ void main() {
       expect(services.recordedQueries, ['default scope']);
     },
   );
+
+  testWidgets('conch is reachable on both layouts and does not search', (
+    tester,
+  ) async {
+    const webview = MethodChannel('io.jns.webview.win');
+    final messenger = tester.binding.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(webview, (call) async {
+      expect(call.method, 'getWebViewVersion');
+      return null;
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(webview, null));
+    final services = _FakeServices();
+    await openApp(tester, services);
+    for (final width in [1440.0, 560.0]) {
+      await tester.binding.setSurfaceSize(Size(width, 900));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('nav-conch')));
+      await tester.pumpAndSettle();
+      expect(find.byType(MagicConchScreen), findsOneWidget);
+      expect(find.text('WebView2 다운로드'), findsOneWidget);
+      expect(find.byType(TextField), findsNothing);
+      expect(services.searches, 0);
+      await tester.tap(find.byKey(const ValueKey('nav-home')));
+      await tester.pumpAndSettle();
+      expect(find.byType(MagicConchScreen), findsNothing);
+      expect(find.text('최근 검색'), findsOneWidget);
+    }
+  });
 
   testWidgets(
     'navigation cancels a pending all search and loads its library page',

@@ -75,6 +75,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ## 포함된 예시 밈 미디어
 
+### 마법의 소라고동
+
+앱 안의 소라고동과 원 위시 윌로우는 MagicalConch 0.1.0의 웹 배포본입니다. 소라고동의 대기·실망 그림은 제공된 장면에서 줄을 지운 프레임이며, 만족 표정은 편집한 이미지입니다. 원작 캐릭터의 권리는 각 권리자에게 있습니다.
+
+Windows 표시는 BSD 3-Clause의 [webview_flutter_windows](https://pub.dev/packages/webview_flutter_windows)와 Microsoft WebView2를 사용합니다. 플러그인 라이선스는 Flutter 라이선스 번들에, WebView2 SDK의 라이선스 및 고지는 배포본의 `data/licenses/webview2/`에 포함됩니다.
+
+### 검색 예시
+
 - `approved-knuckles-tenor.gif`: <https://tenor.com/view/knuckles-knuckles-the-echidna-approved-knuckles-approved-knuckles-approve-gif-7865806417645174166>
 - `approved-knuckles-kym.gif`: <https://knowyourmeme.com/photos/2907981-meme-approved-by-knuckles>
 - `kejang-coming-ruliweb.png`: <https://m.ruliweb.com/community/board/300779/read/44957908>
