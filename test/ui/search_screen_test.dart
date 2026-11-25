@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
@@ -6,6 +7,7 @@ import 'package:material_ui/material_ui.dart';
 import 'package:meme_searcher/core/app_services.dart';
 import 'package:meme_searcher/core/models.dart';
 import 'package:meme_searcher/platform/media_actions.dart';
+import 'package:meme_searcher/ui/app_theme.dart';
 import 'package:meme_searcher/ui/screens/search_screen.dart';
 
 void main() {
@@ -27,6 +29,19 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  Future<void> searchFromHome(WidgetTester tester, String query) async {
+    await tester.enterText(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is TextField &&
+            widget.decoration?.hintText == '밈 키워드, 문구, 캐릭터를 입력하세요',
+      ),
+      query,
+    );
+    await tester.tap(find.text('검색'));
+    await tester.pumpAndSettle();
+  }
+
   for (final previewOnly in [false, true]) {
     testWidgets(
       'web result shows format and copies ${previewOnly ? 'labelled preview' : 'original'} by button and Ctrl+C',
@@ -42,6 +57,8 @@ void main() {
           ..failOriginal = previewOnly;
         final actions = _RecordingActions();
         await openApp(tester, services, actions: actions);
+        await tester.tap(find.text('웹'));
+        await searchFromHome(tester, 'web result');
         expect(find.text(previewOnly ? 'WEBP' : 'JPEG'), findsOneWidget);
         await tester.ensureVisible(find.text('Web result'));
         await tester.tap(find.text('Web result'));
@@ -137,7 +154,7 @@ void main() {
       await tester.tap(find.text('나중에'));
       await tester.pumpAndSettle();
       expect(find.text('Google 이미지 검색 연결'), findsNothing);
-      expect(find.text('Approved meme'), findsOneWidget);
+      expect(find.text('Recent asset'), findsOneWidget);
     },
   );
 
@@ -162,15 +179,148 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(services.searches, 1);
+    expect(services.searches, 0);
     await tester.tap(find.text('approved!'));
     await tester.pump();
-    expect(services.searches, 1);
+    expect(services.searches, 0);
 
     await tester.tap(find.text('검색'));
     await tester.pumpAndSettle();
-    expect(services.searches, 2);
+    expect(services.searches, 1);
     expect(find.text('Approved meme'), findsOneWidget);
+  });
+
+  testWidgets(
+    'Home searches all by default and does not search before submit',
+    (tester) async {
+      final services = _FakeServices();
+      await openApp(tester, services);
+      expect(find.text('최근 사용'), findsOneWidget);
+      expect(find.text('최근 검색'), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byType(CustomScrollView),
+          matching: find.text('즐겨찾기'),
+        ),
+        findsOneWidget,
+      );
+      expect(services.searches, 0);
+
+      await searchFromHome(tester, 'default scope');
+      expect(services.requests.single.scope, SearchScope.all);
+      expect(services.recordedQueries, ['default scope']);
+    },
+  );
+
+  testWidgets(
+    'navigation cancels a pending all search and loads its library page',
+    (tester) async {
+      final services = _FakeServices()
+        ..pendingSearch = Completer<SearchResponse>();
+      await openApp(tester, services);
+      await tester.enterText(
+        find.byWidgetPredicate(
+          (widget) =>
+              widget is TextField &&
+              widget.decoration?.hintText == '밈 키워드, 문구, 캐릭터를 입력하세요',
+        ),
+        'slow query',
+      );
+      await tester.tap(find.text('검색'));
+      await tester.pump();
+      expect(services.searches, 1);
+
+      // Search itself selects 전체; tapping it must still invalidate the pending result.
+      await tester.tap(find.byKey(const ValueKey('nav-all')));
+      await tester.pumpAndSettle();
+      expect(find.text('Library asset'), findsOneWidget);
+      services.pendingSearch!.complete(
+        SearchResponse(
+          assets: [services.webAsset],
+          attempts: const [],
+          scope: SearchScope.all,
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Web search result'), findsNothing);
+      expect(find.text('Library asset'), findsOneWidget);
+    },
+  );
+
+  testWidgets('Home limits sections to five and opens a query and an asset', (
+    tester,
+  ) async {
+    final services = _FakeServices()
+      ..recent = List.generate(
+        6,
+        (index) => MemeAsset(
+          id: 'recent-$index',
+          title: 'Recent $index',
+          origin: 'library',
+        ),
+      )
+      ..favorites = List.generate(
+        6,
+        (index) => MemeAsset(
+          id: 'favorite-$index',
+          title: 'Favorite $index',
+          origin: 'library',
+          favorite: true,
+        ),
+      )
+      ..queries = ['repeat query'];
+    await openApp(tester, services);
+    expect(find.textContaining('Recent '), findsNWidgets(5));
+    expect(find.textContaining('Favorite '), findsNWidgets(5));
+    await tester.tap(find.text('repeat query'));
+    await tester.pumpAndSettle();
+    expect(services.requests.single.query, 'repeat query');
+
+    await tester.tap(find.byKey(const ValueKey('nav-home')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Recent 0'));
+    await tester.pumpAndSettle();
+    expect(services.markedRecent, contains('recent-0'));
+  });
+
+  testWidgets('left menu opens each collection after a completed search', (
+    tester,
+  ) async {
+    final services = _FakeServices();
+    await openApp(tester, services);
+    await searchFromHome(tester, '지난 검색');
+    for (final (nav, title) in [
+      ('favorites', 'Favorite asset'),
+      ('recent', 'Recent asset'),
+      ('all', 'Library asset'),
+    ]) {
+      await tester.tap(find.byKey(ValueKey('nav-$nav')));
+      await tester.pumpAndSettle();
+      expect(find.text(title), findsOneWidget);
+      expect(find.text('검색 결과'), findsNothing);
+      expect(find.text('지난 검색'), findsNothing);
+      expect(services.searches, 1);
+    }
+  });
+
+  testWidgets('preview shows a readable in-dialog copy confirmation', (
+    tester,
+  ) async {
+    final services = _FakeServices();
+    final actions = _RecordingActions();
+    await openApp(tester, services, actions: actions);
+    await tester.tap(find.text('Recent asset'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('복사'));
+    await tester.pump();
+
+    final feedback = find.text('클립보드에 복사했어요.');
+    expect(feedback, findsOneWidget);
+    expect(tester.widget<Text>(feedback).style?.color, MemeTheme.text);
+    expect(
+      find.ancestor(of: feedback, matching: find.byType(Dialog)),
+      findsOneWidget,
+    );
   });
 }
 
@@ -193,6 +343,10 @@ class _RecordingActions extends MediaActions {
 
 class _FakeServices implements AppServices {
   int searches = 0;
+  final requests = <SearchRequest>[];
+  final recordedQueries = <String>[];
+  final markedRecent = <String>[];
+  Completer<SearchResponse>? pendingSearch;
   bool deferred = true;
   bool hasEnvironmentKey = false;
   bool failDeferral = false;
@@ -205,6 +359,36 @@ class _FakeServices implements AppServices {
     format: 'GIF',
     tags: [MemeTag(id: 'sonic', label: 'sonic')],
   );
+  final libraryAsset = const MemeAsset(
+    id: 'library',
+    title: 'Library asset',
+    origin: 'library',
+    format: 'PNG',
+  );
+  final webAsset = const MemeAsset(
+    id: 'web-result',
+    title: 'Web search result',
+    origin: 'web',
+    format: 'PNG',
+  );
+  List<MemeAsset> recent = const [
+    MemeAsset(
+      id: 'recent-asset',
+      title: 'Recent asset',
+      origin: 'library',
+      format: 'PNG',
+    ),
+  ];
+  List<MemeAsset> favorites = const [
+    MemeAsset(
+      id: 'favorite-asset',
+      title: 'Favorite asset',
+      origin: 'library',
+      favorite: true,
+      format: 'GIF',
+    ),
+  ];
+  List<String> queries = const [];
 
   @override
   Future<void> initialize() async {}
@@ -214,7 +398,11 @@ class _FakeServices implements AppServices {
     MediaFilter filter = MediaFilter.all,
     bool favoritesOnly = false,
     bool recentOnly = false,
-  }) async => [asset];
+  }) async {
+    if (recentOnly) return recent;
+    if (favoritesOnly) return favorites;
+    return [libraryAsset];
+  }
 
   @override
   Future<MediaFile> loadMedia(
@@ -242,7 +430,17 @@ class _FakeServices implements AppServices {
   }
 
   @override
-  Future<void> markRecent(String assetId) async {}
+  Future<void> markRecent(String assetId, {MemeAsset? asset}) async {
+    markedRecent.add(assetId);
+  }
+
+  @override
+  Future<List<String>> recentSearches() async => queries;
+
+  @override
+  Future<void> recordSearch(String query) async {
+    recordedQueries.add(query);
+  }
 
   @override
   Future<String?> readSerpApiKey() async => null;
@@ -263,6 +461,8 @@ class _FakeServices implements AppServices {
   @override
   Future<SearchResponse> search(SearchRequest request) async {
     searches += 1;
+    requests.add(request);
+    if (pendingSearch != null) return pendingSearch!.future;
     return SearchResponse(
       assets: [asset],
       attempts: const [],
@@ -288,7 +488,8 @@ class _FakeServices implements AppServices {
   }
 
   @override
-  Future<MemeAsset> toggleFavorite(String assetId) async => asset;
+  Future<MemeAsset> toggleFavorite(String assetId, {MemeAsset? asset}) async =>
+      (asset ?? this.asset).copyWith(favorite: !(asset ?? this.asset).favorite);
 
   @override
   Future<void> writeSerpApiKey(String key) async {

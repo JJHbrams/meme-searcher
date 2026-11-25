@@ -30,17 +30,22 @@ class _SearchScreenState extends State<SearchScreen> {
   final _searchController = TextEditingController();
   final _tagController = TextEditingController();
   final _searchFocus = FocusNode();
+  final _scroll = ScrollController();
   final List<String> _tags = [];
   List<MemeAsset> _assets = [];
-  SearchScope _scope = SearchScope.library;
+  List<MemeAsset> _recentAssets = [];
+  List<MemeAsset> _favoriteAssets = [];
+  List<String> _recentQueries = [];
+  SearchScope _scope = SearchScope.all;
   MediaFilter _filter = MediaFilter.all;
   bool _similar = false;
   bool _loading = true;
   bool _hasSearched = false;
+  bool _showSearchOptions = false;
   bool _openingSettings = false;
   String? _error;
   int _searchSerial = 0;
-  _NavMode _navMode = _NavMode.all;
+  _NavMode _navMode = _NavMode.home;
 
   @override
   void initState() {
@@ -53,13 +58,15 @@ class _SearchScreenState extends State<SearchScreen> {
     _searchController.dispose();
     _tagController.dispose();
     _searchFocus.dispose();
+    _scroll.dispose();
     super.dispose();
   }
 
   Future<void> _initialize() async {
     try {
       await widget.services.initialize();
-      await _search(initial: true);
+      if (!mounted) return;
+      if (_searchSerial == 0) await _loadPage();
       if (mounted) await _openSettings(firstRun: true);
     } catch (_) {
       if (mounted) {
@@ -91,31 +98,38 @@ class _SearchScreenState extends State<SearchScreen> {
     if (tag.isNotEmpty && !_tags.contains(tag)) setState(() => _tags.add(tag));
   }
 
-  Future<void> _search({bool initial = false}) async {
-    if (!initial) _parseInlineTags();
-    final serial = ++_searchSerial;
+  Future<void> _search() async {
+    _parseInlineTags();
     final request = SearchRequest(
       query: _searchController.text.trim(),
       scope: _scope,
       filter: _filter,
       similar: _scope == SearchScope.web ? false : _similar,
       tags: List.unmodifiable(_tags),
-      favoritesOnly: _navMode == _NavMode.favorites,
-      recentOnly: _navMode == _NavMode.recent,
     );
-    if (!initial &&
-        _scope != SearchScope.library &&
-        request.fullQuery.isEmpty) {
+    if (_scope != SearchScope.library && request.fullQuery.isEmpty) {
       _show('웹 검색어를 입력해 주세요.');
       _searchFocus.requestFocus();
       return;
     }
+    final serial = ++_searchSerial;
+    _toTop();
     setState(() {
+      _navMode = _NavMode.all;
       _loading = true;
       _error = null;
-      if (!initial) _hasSearched = true;
+      _assets = [];
+      _hasSearched = true;
     });
     try {
+      if (request.fullQuery.isNotEmpty) {
+        try {
+          await widget.services.recordSearch(request.fullQuery);
+        } catch (_) {
+          // A history write failure should not prevent the search.
+        }
+        if (!mounted || serial != _searchSerial) return;
+      }
       final response = await widget.services.search(request);
       if (!mounted || serial != _searchSerial) return;
       setState(() {
@@ -131,14 +145,68 @@ class _SearchScreenState extends State<SearchScreen> {
     }
   }
 
-  Future<void> _changeNav(_NavMode value) async {
-    setState(() => _navMode = value);
-    await _search();
+  void _toTop() {
+    if (_scroll.hasClients) _scroll.jumpTo(0);
   }
 
-  void _show(String message) =>
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(message)));
+  Future<void> _changeNav(_NavMode value) {
+    _toTop();
+    _searchController.clear();
+    _tagController.clear();
+    _tags.clear();
+    _filter = MediaFilter.all;
+    _similar = false;
+    _showSearchOptions = false;
+    _navMode = value;
+    _hasSearched = false;
+    _assets = [];
+    return _loadPage();
+  }
+
+  Future<void> _loadPage() async {
+    final serial = ++_searchSerial;
+    final mode = _navMode;
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      if (mode == _NavMode.home) {
+        final (recent, favorites, queries) = await (
+          widget.services.library(recentOnly: true),
+          widget.services.library(favoritesOnly: true),
+          widget.services.recentSearches(),
+        ).wait;
+        if (!mounted || serial != _searchSerial) return;
+        setState(() {
+          _recentAssets = recent.take(5).toList();
+          _favoriteAssets = favorites.take(5).toList();
+          _recentQueries = queries.take(5).toList();
+        });
+      } else {
+        final items = await widget.services.library(
+          filter: _filter,
+          favoritesOnly: mode == _NavMode.favorites,
+          recentOnly: mode == _NavMode.recent,
+        );
+        if (!mounted || serial != _searchSerial) return;
+        setState(() => _assets = items);
+      }
+    } catch (_) {
+      if (mounted && serial == _searchSerial) {
+        setState(() => _error = '목록을 불러오지 못했어요.');
+      }
+    } finally {
+      if (mounted && serial == _searchSerial) setState(() => _loading = false);
+    }
+  }
+
+  void _show(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..removeCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
+  }
 
   String _source(MemeAsset asset) {
     final labels = <String>[];
@@ -170,9 +238,14 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   Future<void> _openAsset(MemeAsset asset) async {
+    final page = _searchSerial;
     try {
-      await widget.services.markRecent(asset.id);
-      if (!mounted) return;
+      await widget.services.markRecent(asset.id, asset: asset);
+    } catch (_) {
+      // Opening an image also works when its recent-use entry cannot be saved.
+    }
+    if (!mounted || page != _searchSerial) return;
+    try {
       await showDialog<void>(
         context: context,
         builder: (context) => _PreviewDialog(
@@ -183,14 +256,25 @@ class _SearchScreenState extends State<SearchScreen> {
           onInspected: (inspected) {
             final index = _assets.indexWhere((a) => a.id == asset.id);
             if (mounted && index >= 0) {
-              setState(() => _assets = [..._assets]..[index] = inspected);
+              final updated = inspected.copyWith(
+                favorite: _assets[index].favorite,
+              );
+              setState(() => _assets = [..._assets]..[index] = updated);
             }
           },
-          onSaved: () async {
-            await _search();
+          onFavoriteChanged: (favorite) {
+            final index = _assets.indexWhere((a) => a.id == asset.id);
+            if (mounted && index >= 0) {
+              setState(
+                () =>
+                    _assets = [..._assets]
+                      ..[index] = _assets[index].copyWith(favorite: favorite),
+              );
+            }
           },
         ),
       );
+      if (mounted && !_hasSearched) await _loadPage();
     } catch (_) {
       _show('미리보기를 열지 못했어요.');
     }
@@ -228,6 +312,7 @@ class _SearchScreenState extends State<SearchScreen> {
   @override
   Widget build(BuildContext context) {
     final wide = MediaQuery.sizeOf(context).width >= 760;
+    final home = _navMode == _NavMode.home;
     return Scaffold(
       body: SafeArea(
         child: Row(
@@ -240,39 +325,66 @@ class _SearchScreenState extends State<SearchScreen> {
               ),
             Expanded(
               child: CustomScrollView(
+                controller: _scroll,
                 slivers: [
                   SliverPadding(
                     padding: EdgeInsets.fromLTRB(
                       wide ? 46 : 20,
-                      34,
+                      home ? 24 : 34,
                       wide ? 46 : 20,
-                      80,
+                      home ? 32 : 14,
                     ),
                     sliver: SliverList.list(
                       children: [
                         _Header(
-                          assetCount: _assets.length,
+                          title: _hasSearched ? '검색 결과' : _navMode.label,
+                          assetCount: home || _loading ? null : _assets.length,
                           onSettings: _openSettings,
                           compact: !wide,
                         ),
-                        const SizedBox(height: 30),
+                        SizedBox(height: home ? 16 : 30),
                         _searchBox(),
                         const SizedBox(height: 12),
-                        _scopeChoice(),
-                        const SizedBox(height: 8),
-                        _similarChoice(),
-                        const SizedBox(height: 12),
-                        _formatChoice(),
-                        if (!_hasSearched) ...[
-                          const SizedBox(height: 22),
-                          _examples(),
+                        if (home) ...[
+                          Row(
+                            children: [
+                              Expanded(child: _scopeChoice()),
+                              const SizedBox(width: 8),
+                              IconButton(
+                                tooltip: _showSearchOptions
+                                    ? '검색 옵션 접기'
+                                    : '검색 옵션 열기',
+                                isSelected: _showSearchOptions,
+                                onPressed: () => setState(
+                                  () =>
+                                      _showSearchOptions = !_showSearchOptions,
+                                ),
+                                icon: const Icon(Icons.tune),
+                              ),
+                            ],
+                          ),
+                          if (_showSearchOptions) ...[
+                            _similarChoice(),
+                            _formatChoice(),
+                          ],
+                          const SizedBox(height: 20),
+                          if (!_loading ||
+                              _recentAssets.isNotEmpty ||
+                              _recentQueries.isNotEmpty ||
+                              _favoriteAssets.isNotEmpty)
+                            ..._homeSections()
+                          else
+                            const Center(child: CircularProgressIndicator()),
+                        ] else ...[
+                          _scopeChoice(),
+                          if (_hasSearched) _similarChoice(),
+                          const SizedBox(height: 12),
+                          _formatChoice(),
+                          if (_hasSearched) ...[
+                            const SizedBox(height: 12),
+                            _tagFilter(),
+                          ],
                         ],
-                        if (_hasSearched) ...[
-                          const SizedBox(height: 22),
-                          _tagFilter(),
-                        ],
-                        const SizedBox(height: 28),
-                        _resultHeading(),
                         if (_error != null) ...[
                           const SizedBox(height: 10),
                           _InlineMessage(message: _error!, error: true),
@@ -281,7 +393,7 @@ class _SearchScreenState extends State<SearchScreen> {
                       ],
                     ),
                   ),
-                  _resultsGrid(wide),
+                  if (!home) _resultsGrid(wide),
                 ],
               ),
             ),
@@ -296,14 +408,25 @@ class _SearchScreenState extends State<SearchScreen> {
                   _changeNav(_NavMode.values[index]),
               destinations: const [
                 NavigationDestination(
+                  key: ValueKey('nav-home'),
+                  icon: Icon(Icons.home_outlined),
+                  label: '홈',
+                ),
+                NavigationDestination(
+                  key: ValueKey('nav-all'),
                   icon: Icon(Icons.grid_view_rounded),
                   label: '전체',
                 ),
                 NavigationDestination(
+                  key: ValueKey('nav-favorites'),
                   icon: Icon(Icons.star_border),
                   label: '즐겨찾기',
                 ),
-                NavigationDestination(icon: Icon(Icons.history), label: '최근'),
+                NavigationDestination(
+                  key: ValueKey('nav-recent'),
+                  icon: Icon(Icons.history),
+                  label: '최근',
+                ),
               ],
             ),
     );
@@ -386,7 +509,10 @@ class _SearchScreenState extends State<SearchScreen> {
               (item) => ChoiceChip(
                 label: Text(item.$2),
                 selected: _filter == item.$1,
-                onSelected: (_) => setState(() => _filter = item.$1),
+                onSelected: (_) {
+                  setState(() => _filter = item.$1);
+                  if (_navMode != _NavMode.home && !_hasSearched) _loadPage();
+                },
               ),
             )
             .toList(),
@@ -471,17 +597,123 @@ class _SearchScreenState extends State<SearchScreen> {
     ),
   );
 
-  Widget _resultHeading() => Row(
+  List<Widget> _homeSections() => [
+    _homeAssets('최근 사용', _recentAssets, _NavMode.recent, '열어 본 짤이 여기에 모여요.'),
+    const SizedBox(height: 22),
+    const Text(
+      '최근 검색',
+      style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+    ),
+    const SizedBox(height: 8),
+    if (_recentQueries.isEmpty)
+      const Text('아직 검색 기록이 없어요.', style: TextStyle(color: MemeTheme.muted))
+    else
+      Wrap(
+        spacing: 8,
+        runSpacing: 6,
+        children: [
+          for (final query in _recentQueries)
+            ActionChip(
+              avatar: const Icon(Icons.history, size: 16),
+              label: Text(query, maxLines: 1, overflow: TextOverflow.ellipsis),
+              onPressed: () {
+                _tags.clear();
+                _searchController.text = query;
+                _search();
+              },
+            ),
+        ],
+      ),
+    const SizedBox(height: 22),
+    _homeAssets(
+      '즐겨찾기',
+      _favoriteAssets,
+      _NavMode.favorites,
+      '미리보기에서 별을 누르면 이곳에 표시돼요.',
+    ),
+    if (_recentQueries.isEmpty) ...[const SizedBox(height: 24), _examples()],
+  ];
+
+  Widget _homeAssets(
+    String title,
+    List<MemeAsset> assets,
+    _NavMode destination,
+    String emptyMessage,
+  ) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
     children: [
-      const Text(
-        '검색 결과',
-        style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800),
+      Row(
+        children: [
+          Expanded(
+            child: Text(
+              title,
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+            ),
+          ),
+          if (assets.isNotEmpty)
+            TextButton(
+              style: TextButton.styleFrom(
+                minimumSize: const Size(0, 32),
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+              onPressed: () => _changeNav(destination),
+              child: const Text('전체 보기'),
+            ),
+        ],
       ),
-      const SizedBox(width: 8),
-      Text(
-        '${_assets.length}개',
-        style: const TextStyle(color: MemeTheme.muted, fontSize: 13),
-      ),
+      const SizedBox(height: 8),
+      if (assets.isEmpty)
+        Text(emptyMessage, style: const TextStyle(color: MemeTheme.muted))
+      else
+        LayoutBuilder(
+          builder: (context, constraints) {
+            const gap = 10.0;
+            final columns = (constraints.maxWidth / 140).floor().clamp(1, 5);
+            final width =
+                (constraints.maxWidth - gap * (columns - 1)) / columns;
+            return Wrap(
+              spacing: gap,
+              runSpacing: gap,
+              children: [
+                for (final asset in assets)
+                  SizedBox(
+                    width: width,
+                    child: Material(
+                      color: MemeTheme.surface,
+                      clipBehavior: Clip.antiAlias,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        side: const BorderSide(color: MemeTheme.border),
+                      ),
+                      child: InkWell(
+                        onTap: () => _openAsset(asset),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            AspectRatio(
+                              aspectRatio: 2.05,
+                              child: _AssetImage(
+                                asset: asset,
+                                fit: BoxFit.cover,
+                              ),
+                            ),
+                            Padding(
+                              padding: const EdgeInsets.all(8),
+                              child: Text(
+                                asset.title,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            );
+          },
+        ),
     ],
   );
 
@@ -496,92 +728,92 @@ class _SearchScreenState extends State<SearchScreen> {
       return const SliverFillRemaining(
         hasScrollBody: false,
         child: Center(
-          child: Text('일치하는 짤이 없어요', style: TextStyle(color: MemeTheme.muted)),
+          child: Text('표시할 짤이 없어요', style: TextStyle(color: MemeTheme.muted)),
         ),
       );
     }
-    final count = wide ? 5 : 2;
+    final inset = wide ? 46.0 : 20.0;
     return SliverPadding(
-      padding: EdgeInsets.fromLTRB(wide ? 46 : 20, 0, wide ? 46 : 20, 90),
-      sliver: SliverGrid.builder(
-        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: count,
-          mainAxisSpacing: 12,
-          crossAxisSpacing: 12,
-          childAspectRatio: .74,
+      padding: EdgeInsets.fromLTRB(inset, 0, inset, 90),
+      sliver: SliverLayoutBuilder(
+        builder: (context, constraints) => SliverGrid.builder(
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: ((constraints.crossAxisExtent + 12) / 162)
+                .floor()
+                .clamp(1, 5),
+            mainAxisSpacing: 12,
+            crossAxisSpacing: 12,
+            childAspectRatio: .74,
+          ),
+          itemCount: _assets.length,
+          itemBuilder: (context, index) {
+            final asset = _assets[index];
+            Widget card(MemeAsset item, {bool probing = false}) => _MemeCard(
+              asset: item,
+              source: _source(item),
+              mediaInfo: _mediaInfo(item),
+              probing: probing,
+              onTap: () => _openAsset(item),
+            );
+            if (!asset.isWeb || asset.displayFormat != null) return card(asset);
+            return FutureBuilder<String?>(
+              key: ValueKey(asset.originalUrl ?? asset.id),
+              future: widget.services.probeWebFormat(asset),
+              builder: (_, snapshot) => card(
+                snapshot.hasData
+                    ? asset.copyWith(formatHint: snapshot.data)
+                    : asset,
+                probing: snapshot.connectionState == ConnectionState.waiting,
+              ),
+            );
+          },
         ),
-        itemCount: _assets.length,
-        itemBuilder: (context, index) {
-          final asset = _assets[index];
-          Widget card(MemeAsset item, {bool probing = false}) => _MemeCard(
-            asset: item,
-            source: _source(item),
-            mediaInfo: _mediaInfo(item),
-            probing: probing,
-            onTap: () => _openAsset(item),
-          );
-          if (!asset.isWeb || asset.displayFormat != null) return card(asset);
-          return FutureBuilder<String?>(
-            key: ValueKey(asset.originalUrl ?? asset.id),
-            future: widget.services.probeWebFormat(asset),
-            builder: (_, snapshot) => card(
-              snapshot.hasData
-                  ? asset.copyWith(formatHint: snapshot.data)
-                  : asset,
-              probing: snapshot.connectionState == ConnectionState.waiting,
-            ),
-          );
-        },
       ),
     );
   }
 }
 
-enum _NavMode { all, favorites, recent }
+enum _NavMode {
+  home('홈'),
+  all('전체'),
+  favorites('즐겨찾기'),
+  recent('최근 사용');
+
+  const _NavMode(this.label);
+  final String label;
+}
 
 class _Header extends StatelessWidget {
   const _Header({
+    required this.title,
     required this.assetCount,
     required this.onSettings,
     required this.compact,
   });
 
-  final int assetCount;
+  final String title;
+  final int? assetCount;
   final VoidCallback onSettings;
   final bool compact;
 
   @override
   Widget build(BuildContext context) => Row(
     children: [
-      const Expanded(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'LIVE MEME SEARCH',
-              style: TextStyle(
-                fontSize: 10,
-                letterSpacing: 1.8,
-                color: MemeTheme.muted,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-            SizedBox(height: 6),
-            Text(
-              '밈 찾기',
-              style: TextStyle(
-                fontSize: 30,
-                fontWeight: FontWeight.w900,
-                letterSpacing: -1.2,
-              ),
-            ),
-          ],
+      Expanded(
+        child: Text(
+          title,
+          style: const TextStyle(
+            fontSize: 30,
+            fontWeight: FontWeight.w900,
+            letterSpacing: -1.2,
+          ),
         ),
       ),
-      Text(
-        '$assetCount개 밈',
-        style: const TextStyle(color: MemeTheme.muted, fontSize: 12),
-      ),
+      if (assetCount != null)
+        Text(
+          '$assetCount개 밈',
+          style: const TextStyle(color: MemeTheme.muted, fontSize: 12),
+        ),
       if (compact)
         IconButton(
           onPressed: onSettings,
@@ -633,6 +865,7 @@ class _SideRail extends StatelessWidget {
               ],
             ),
           ),
+          _railButton(Icons.home_outlined, '홈', _NavMode.home),
           _railButton(Icons.grid_view_rounded, '전체', _NavMode.all),
           _railButton(Icons.star_border, '즐겨찾기', _NavMode.favorites),
           _railButton(Icons.history, '최근', _NavMode.recent),
@@ -650,6 +883,7 @@ class _SideRail extends StatelessWidget {
   Widget _railButton(IconData icon, String label, _NavMode value) => Padding(
     padding: const EdgeInsets.only(bottom: 4),
     child: FilledButton.tonalIcon(
+      key: ValueKey('nav-${value.name}'),
       style: FilledButton.styleFrom(
         backgroundColor: mode == value
             ? MemeTheme.surfaceRaised
@@ -795,7 +1029,7 @@ class _PreviewDialog extends StatefulWidget {
     required this.actions,
     required this.source,
     required this.onInspected,
-    required this.onSaved,
+    required this.onFavoriteChanged,
   });
 
   final MemeAsset asset;
@@ -803,7 +1037,7 @@ class _PreviewDialog extends StatefulWidget {
   final MediaActions actions;
   final String source;
   final ValueChanged<MemeAsset> onInspected;
-  final Future<void> Function() onSaved;
+  final ValueChanged<bool> onFavoriteChanged;
 
   @override
   State<_PreviewDialog> createState() => _PreviewDialogState();
@@ -814,6 +1048,40 @@ class _PreviewDialogState extends State<_PreviewDialog> {
   String? _error;
   bool _busy = true;
   bool _previewOnly = false;
+  String? _feedback;
+  bool _feedbackIsError = false;
+  bool _changingFavorite = false;
+  late bool _favorite = widget.asset.favorite;
+
+  void _notify(String message, {bool error = false}) {
+    if (!mounted) return;
+    setState(() {
+      _feedback = message;
+      _feedbackIsError = error;
+    });
+  }
+
+  Future<void> _toggleFavorite() async {
+    if (_changingFavorite) return;
+    setState(() => _changingFavorite = true);
+    try {
+      final asset = _previewOnly
+          ? widget.asset
+          : (_media?.asset ?? widget.asset);
+      final updated = await widget.services.toggleFavorite(
+        widget.asset.id,
+        asset: asset,
+      );
+      if (!mounted) return;
+      _favorite = updated.favorite;
+      widget.onFavoriteChanged(_favorite);
+      _notify(_favorite ? '즐겨찾기에 추가했어요.' : '즐겨찾기에서 뺐어요.');
+    } catch (_) {
+      _notify('즐겨찾기를 변경하지 못했어요.', error: true);
+    } finally {
+      if (mounted) setState(() => _changingFavorite = false);
+    }
+  }
 
   @override
   void initState() {
@@ -863,14 +1131,12 @@ class _PreviewDialogState extends State<_PreviewDialog> {
       final result = await action(media);
       if (!mounted || result.cancelled) return;
       if (result.completed) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(success)));
+        _notify(success);
       }
     } on MediaActionException catch (error) {
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(error.message)));
-      }
+      _notify(error.message, error: true);
+    } catch (_) {
+      _notify('작업을 완료하지 못했어요.', error: true);
     }
   }
 
@@ -881,16 +1147,9 @@ class _PreviewDialogState extends State<_PreviewDialog> {
     }
     try {
       await widget.services.saveToLibrary(media, title: widget.asset.title);
-      await widget.onSaved();
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('내 짤에 저장했어요.')));
-      }
+      _notify('내 짤에 저장했어요.');
     } catch (_) {
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('저장하지 못했어요.')));
-      }
+      _notify('저장하지 못했어요.', error: true);
     }
   }
 
@@ -919,157 +1178,201 @@ class _PreviewDialogState extends State<_PreviewDialog> {
       backgroundColor: MemeTheme.surface,
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 760),
-        child: SingleChildScrollView(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Align(
-                  alignment: Alignment.topRight,
-                  child: IconButton(
-                    onPressed: () => Navigator.pop(context),
-                    icon: const Icon(Icons.close),
-                    tooltip: '미리보기 닫기',
-                  ),
-                ),
-                ConstrainedBox(
-                  constraints: BoxConstraints(
-                    maxHeight: MediaQuery.sizeOf(context).height * .48,
-                  ),
-                  child: AspectRatio(
-                    aspectRatio:
-                        (displayed.width != null &&
-                            displayed.height != null &&
-                            displayed.width! > 0 &&
-                            displayed.height! > 0)
-                        ? displayed.width! / displayed.height!
-                        : 1,
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(10),
-                      child: ColoredBox(
-                        color: MemeTheme.cream,
-                        child: _busy
-                            ? const Center(child: CircularProgressIndicator())
-                            : _error != null
-                            ? Center(
-                                child: Padding(
-                                  padding: const EdgeInsets.all(24),
-                                  child: Text(
-                                    _error!,
-                                    textAlign: TextAlign.center,
-                                  ),
-                                ),
-                              )
-                            : Image.memory(_media!.bytes, fit: BoxFit.contain),
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 18),
-                Text(
-                  widget.source,
-                  style: const TextStyle(
-                    color: MemeTheme.accent,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                const SizedBox(height: 5),
-                Text(
-                  widget.asset.title,
-                  style: Theme.of(context).textTheme.titleLarge,
-                ),
-                const SizedBox(height: 5),
-                Text(
-                  _SearchScreenState._mediaInfo(displayed),
-                  style: const TextStyle(color: MemeTheme.muted),
-                ),
-                if (_previewOnly)
-                  const Text(
-                    '원본을 열 수 없어 검색 엔진의 미리보기를 표시했어요. 복사하면 이 크기로 붙여넣어요.',
-                  ),
-                if (_previewOnly || _error != null)
-                  TextButton(
-                    onPressed: _busy ? null : _load,
-                    child: const Text('원본 다시 시도'),
-                  ),
-                if (widget.asset.matchReason != null) ...[
-                  const SizedBox(height: 6),
-                  Text(
-                    widget.asset.matchReason!,
-                    style: const TextStyle(
-                      color: MemeTheme.muted,
-                      fontSize: 12,
-                    ),
-                  ),
-                ],
-                const SizedBox(height: 16),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    FilledButton.icon(
-                      onPressed: _media == null ? null : _copy,
-                      icon: const Icon(Icons.copy_outlined),
-                      label: Text(_previewOnly ? '미리보기 이미지 복사' : '복사'),
-                    ),
-                    if (Platform.isWindows && !_previewOnly && !displayed.isGif)
-                      OutlinedButton.icon(
-                        onPressed: _media == null
-                            ? null
-                            : () => _run(
-                                widget.actions.copyFile,
-                                '원본 파일을 복사했어요.',
-                              ),
-                        icon: const Icon(Icons.file_copy_outlined),
-                        label: const Text('파일로 복사'),
-                      ),
-                    OutlinedButton.icon(
-                      onPressed: _media == null || _previewOnly
-                          ? null
-                          : () => _run(widget.actions.save, '원본을 저장했어요.'),
-                      icon: const Icon(Icons.download_outlined),
-                      label: const Text('원본 저장'),
-                    ),
-                    if (!Platform.isWindows)
-                      OutlinedButton.icon(
-                        onPressed: _media == null || _previewOnly
-                            ? null
-                            : () => _run(widget.actions.share, '공유 화면을 열었어요.'),
-                        icon: const Icon(Icons.ios_share_outlined),
-                        label: const Text('공유'),
-                      ),
-                    if (widget.asset.isWeb)
-                      OutlinedButton.icon(
-                        onPressed: _media == null || _previewOnly
-                            ? null
-                            : _saveToLibrary,
-                        icon: const Icon(Icons.add_to_photos_outlined),
-                        label: const Text('내 짤에 저장'),
-                      ),
-                    if (widget.asset.sourceUrl != null ||
-                        widget.asset.originalUrl != null)
-                      OutlinedButton.icon(
-                        onPressed: () => launchUrl(
-                          Uri.parse(
-                            widget.asset.sourceUrl ?? widget.asset.originalUrl!,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Flexible(
+              child: SingleChildScrollView(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          IconButton(
+                            tooltip: _favorite ? '즐겨찾기 해제' : '즐겨찾기 추가',
+                            onPressed: _changingFavorite || _busy
+                                ? null
+                                : _toggleFavorite,
+                            icon: Icon(
+                              _favorite ? Icons.star : Icons.star_border,
+                              color: _favorite
+                                  ? MemeTheme.accent
+                                  : MemeTheme.text,
+                            ),
                           ),
-                          mode: LaunchMode.externalApplication,
-                        ),
-                        icon: const Icon(Icons.open_in_new),
-                        label: const Text('출처'),
+                          IconButton(
+                            onPressed: () => Navigator.pop(context),
+                            icon: const Icon(Icons.close),
+                            tooltip: '미리보기 닫기',
+                          ),
+                        ],
                       ),
-                  ],
+                      ConstrainedBox(
+                        constraints: BoxConstraints(
+                          maxHeight: MediaQuery.sizeOf(context).height * .48,
+                        ),
+                        child: AspectRatio(
+                          aspectRatio:
+                              (displayed.width != null &&
+                                  displayed.height != null &&
+                                  displayed.width! > 0 &&
+                                  displayed.height! > 0)
+                              ? displayed.width! / displayed.height!
+                              : 1,
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(10),
+                            child: ColoredBox(
+                              color: MemeTheme.cream,
+                              child: _busy
+                                  ? const Center(
+                                      child: CircularProgressIndicator(),
+                                    )
+                                  : _error != null
+                                  ? Center(
+                                      child: Padding(
+                                        padding: const EdgeInsets.all(24),
+                                        child: Text(
+                                          _error!,
+                                          textAlign: TextAlign.center,
+                                        ),
+                                      ),
+                                    )
+                                  : Image.memory(
+                                      _media!.bytes,
+                                      fit: BoxFit.contain,
+                                    ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                      Text(
+                        widget.source,
+                        style: const TextStyle(
+                          color: MemeTheme.accent,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 5),
+                      Text(
+                        widget.asset.title,
+                        style: Theme.of(context).textTheme.titleLarge,
+                      ),
+                      const SizedBox(height: 5),
+                      Text(
+                        _SearchScreenState._mediaInfo(displayed),
+                        style: const TextStyle(color: MemeTheme.muted),
+                      ),
+                      if (_previewOnly)
+                        const Text(
+                          '원본을 열 수 없어 검색 엔진의 미리보기를 표시했어요. 복사하면 이 크기로 붙여넣어요.',
+                        ),
+                      if (_previewOnly || _error != null)
+                        TextButton(
+                          onPressed: _busy ? null : _load,
+                          child: const Text('원본 다시 시도'),
+                        ),
+                      if (widget.asset.matchReason != null) ...[
+                        const SizedBox(height: 6),
+                        Text(
+                          widget.asset.matchReason!,
+                          style: const TextStyle(
+                            color: MemeTheme.muted,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 16),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          FilledButton.icon(
+                            onPressed: _media == null ? null : _copy,
+                            icon: const Icon(Icons.copy_outlined),
+                            label: Text(_previewOnly ? '미리보기 이미지 복사' : '복사'),
+                          ),
+                          if (Platform.isWindows &&
+                              !_previewOnly &&
+                              !displayed.isGif)
+                            OutlinedButton.icon(
+                              onPressed: _media == null
+                                  ? null
+                                  : () => _run(
+                                      widget.actions.copyFile,
+                                      '원본 파일을 복사했어요.',
+                                    ),
+                              icon: const Icon(Icons.file_copy_outlined),
+                              label: const Text('파일로 복사'),
+                            ),
+                          OutlinedButton.icon(
+                            onPressed: _media == null || _previewOnly
+                                ? null
+                                : () => _run(widget.actions.save, '원본을 저장했어요.'),
+                            icon: const Icon(Icons.download_outlined),
+                            label: const Text('원본 저장'),
+                          ),
+                          if (!Platform.isWindows)
+                            OutlinedButton.icon(
+                              onPressed: _media == null || _previewOnly
+                                  ? null
+                                  : () => _run(
+                                      widget.actions.share,
+                                      '공유 화면을 열었어요.',
+                                    ),
+                              icon: const Icon(Icons.ios_share_outlined),
+                              label: const Text('공유'),
+                            ),
+                          if (widget.asset.isWeb)
+                            OutlinedButton.icon(
+                              onPressed: _media == null || _previewOnly
+                                  ? null
+                                  : _saveToLibrary,
+                              icon: const Icon(Icons.add_to_photos_outlined),
+                              label: const Text('내 짤에 저장'),
+                            ),
+                          if (widget.asset.sourceUrl != null ||
+                              widget.asset.originalUrl != null)
+                            OutlinedButton.icon(
+                              onPressed: () => launchUrl(
+                                Uri.parse(
+                                  widget.asset.sourceUrl ??
+                                      widget.asset.originalUrl!,
+                                ),
+                                mode: LaunchMode.externalApplication,
+                              ),
+                              icon: const Icon(Icons.open_in_new),
+                              label: const Text('출처'),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'Esc 닫기 · Ctrl + C 복사',
+                        style: TextStyle(color: MemeTheme.muted, fontSize: 11),
+                      ),
+                    ],
+                  ),
                 ),
-                const SizedBox(height: 8),
-                const Text(
-                  'Esc 닫기 · Ctrl + C 복사',
-                  style: TextStyle(color: MemeTheme.muted, fontSize: 11),
-                ),
-              ],
+              ),
             ),
-          ),
+            if (_feedback != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                child: Semantics(
+                  liveRegion: true,
+                  child: _InlineMessage(
+                    message: _feedback!,
+                    error: _feedbackIsError,
+                  ),
+                ),
+              ),
+          ],
         ),
       ),
     );
@@ -1090,7 +1393,14 @@ class _InlineMessage extends StatelessWidget {
     ),
     child: Padding(
       padding: const EdgeInsets.all(10),
-      child: Text(message, style: const TextStyle(fontSize: 12)),
+      child: Text(
+        message,
+        style: const TextStyle(
+          color: MemeTheme.text,
+          fontSize: 14,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
     ),
   );
 }

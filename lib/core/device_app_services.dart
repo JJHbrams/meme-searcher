@@ -56,10 +56,21 @@ class DeviceAppServices implements AppServices {
   final Map<String, _CachedSearch> _cache = {};
   VisualMatcher? _visualMatcher;
   bool _initialized = false;
+  Future<void>? _initializing;
 
   @override
-  Future<void> initialize() async {
-    if (_initialized) return;
+  Future<void> initialize() {
+    if (_initialized) return Future.value();
+    final pending = _initializing;
+    if (pending != null) return pending;
+    final initialization = _initialize();
+    _initializing = initialization;
+    return initialization.whenComplete(() {
+      if (identical(_initializing, initialization)) _initializing = null;
+    });
+  }
+
+  Future<void> _initialize() async {
     _store ??= await LocalLibraryStore.open();
     _visualMatcher = await VisualMatcher.load(_bundle);
     final seeds = MemeCatalog.seedAssets
@@ -150,6 +161,9 @@ class DeviceAppServices implements AppServices {
         (plan.familyId != null || request.filter == MediaFilter.gif)) {
       ranked = await _probeVisual(ranked, plan);
     }
+    // A web collector produces fresh objects each time. Overlay durable Home
+    // state so a bookmarked result stays visibly bookmarked on later searches.
+    ranked = ranked.map(_store!.applyStoredState).toList(growable: false);
     final remoteAttempts = attempts
         .where(
           (attempt) => attempt.engine == 'google' || attempt.engine == 'naver',
@@ -278,12 +292,13 @@ class DeviceAppServices implements AppServices {
     bool recentOnly = false,
   }) async {
     await initialize();
-    var items = _store!.all();
-    if (favoritesOnly) items = items.where((item) => item.favorite).toList();
-    if (recentOnly) {
-      final ids = _store!.recentIds;
-      items.sort((a, b) => ids.indexOf(a.id).compareTo(ids.indexOf(b.id)));
-      items = items.where((item) => ids.contains(item.id)).toList();
+    var items = recentOnly
+        ? _store!.recentAssets()
+        : favoritesOnly
+        ? _store!.favorites()
+        : _store!.all();
+    if (favoritesOnly && recentOnly) {
+      items = items.where((item) => item.favorite).toList();
     }
     if (filter == MediaFilter.gif)
       items = items.where((item) => item.isGif).toList();
@@ -323,7 +338,7 @@ class DeviceAppServices implements AppServices {
     final url = asset.originalUrl;
     if (url == null || url.isEmpty)
       throw StateError('Media has no original URL.');
-    return _loadWebImage(asset, url);
+    return _loadWebImage(asset, url, hydrateRecentOriginal: true);
   }
 
   @override
@@ -359,7 +374,11 @@ class DeviceAppServices implements AppServices {
     return _loadWebImage(asset, url);
   }
 
-  Future<MediaFile> _loadWebImage(MemeAsset asset, String url) async {
+  Future<MediaFile> _loadWebImage(
+    MemeAsset asset,
+    String url, {
+    bool hydrateRecentOriginal = false,
+  }) async {
     final bytes = await _downloader.download(url);
     final inspection = await MediaInspector.inspectMotion(bytes);
     if (inspection.format == 'UNKNOWN' ||
@@ -382,6 +401,13 @@ class DeviceAppServices implements AppServices {
       inspectionStatus: inspection.animated ? 'animated' : 'static',
       inspectionReason: inspection.reason,
     );
+    if (hydrateRecentOriginal) {
+      try {
+        await _store!.refreshRecentAsset(cached);
+      } catch (_) {
+        // Recent history is best-effort; a storage failure must not block media.
+      }
+    }
     return MediaFile(bytes: bytes, path: path, asset: cached);
   }
 
@@ -415,22 +441,30 @@ class DeviceAppServices implements AppServices {
   }
 
   @override
-  Future<MemeAsset> toggleFavorite(String assetId) async {
+  Future<MemeAsset> toggleFavorite(String assetId, {MemeAsset? asset}) async {
     await initialize();
-    final current = _store!.byId(assetId);
-    if (current == null) throw StateError('Unknown asset.');
-    final updated = current.copyWith(favorite: !current.favorite);
-    await _store!.upsert(updated);
+    final updated = await _store!.toggleFavorite(assetId, asset: asset);
     _cache.clear();
     return updated;
   }
 
   @override
-  Future<void> markRecent(String assetId) async {
+  Future<void> markRecent(String assetId, {MemeAsset? asset}) async {
     await initialize();
-    if (_store!.byId(assetId) == null) return;
-    await _store!.recent(assetId);
+    await _store!.recent(assetId, asset: asset);
     _cache.clear();
+  }
+
+  @override
+  Future<List<String>> recentSearches() async {
+    await initialize();
+    return _store!.recentSearches;
+  }
+
+  @override
+  Future<void> recordSearch(String query) async {
+    await initialize();
+    await _store!.recordSearch(query);
   }
 
   @override
