@@ -68,8 +68,15 @@ try {
     $mediaDirectory = New-Item -ItemType Directory -Path (Join-Path $stageDir 'docs/media') -Force
     foreach ($document in @('guide.md', 'release.md')) { Copy-Item -LiteralPath (Join-Path $repoRoot "docs/$document") -Destination (Join-Path $stageDir "docs/$document") }
     foreach ($name in @('meme-drawer.jpg','find-your-meme.png','find-your-meme-mobile.png','home.png','search-results.png')) { Copy-Item -LiteralPath (Join-Path $repoRoot "docs/media/$name") -Destination $mediaDirectory.FullName }
-    Compress-Archive -Path (Join-Path $stageDir '*') -DestinationPath $tempArchive -CompressionLevel Optimal
     Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $stagePrefix = [IO.Path]::GetFullPath($stageDir).TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
+    $createdZip = [IO.Compression.ZipFile]::Open($tempArchive, [IO.Compression.ZipArchiveMode]::Create)
+    try {
+        Get-ChildItem -LiteralPath $stageDir -Recurse -File | Sort-Object FullName | ForEach-Object {
+            $relative = $_.FullName.Substring($stagePrefix.Length).Replace('\', '/')
+            [IO.Compression.ZipFileExtensions]::CreateEntryFromFile($createdZip, $_.FullName, $relative, [IO.Compression.CompressionLevel]::Optimal) | Out-Null
+        }
+    } finally { $createdZip.Dispose() }
     $zip = [IO.Compression.ZipFile]::OpenRead($tempArchive)
     try {
         foreach ($required in @('meme_searcher.exe','flutter_windows.dll','data/app.so','RELEASE-BUILD.json')) { if (-not ($zip.Entries.FullName -contains $required)) { throw "Archive is missing $required" } }
