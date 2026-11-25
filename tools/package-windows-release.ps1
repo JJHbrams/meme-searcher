@@ -66,7 +66,7 @@ try {
     foreach ($document in @('README.md','THIRD_PARTY_NOTICES.md')) { Copy-Item -LiteralPath (Join-Path $repoRoot $document) -Destination (Join-Path $stageDir $document) -Force }
     Copy-Item -LiteralPath $provenancePath -Destination (Join-Path $stageDir 'RELEASE-BUILD.json') -Force
     $mediaDirectory = New-Item -ItemType Directory -Path (Join-Path $stageDir 'docs/media') -Force
-    Copy-Item -LiteralPath (Join-Path $repoRoot 'docs/guide.md') -Destination (Join-Path $stageDir 'docs/guide.md')
+    foreach ($document in @('guide.md', 'release.md')) { Copy-Item -LiteralPath (Join-Path $repoRoot "docs/$document") -Destination (Join-Path $stageDir "docs/$document") }
     foreach ($name in @('meme-drawer.jpg','find-your-meme.png','find-your-meme-mobile.png','home.png','search-results.png')) { Copy-Item -LiteralPath (Join-Path $repoRoot "docs/media/$name") -Destination $mediaDirectory.FullName }
     Compress-Archive -Path (Join-Path $stageDir '*') -DestinationPath $tempArchive -CompressionLevel Optimal
     Add-Type -AssemblyName System.IO.Compression.FileSystem

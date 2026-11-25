@@ -17,6 +17,8 @@ if ($initialStatus) { throw 'Release build requires a clean tracked source tree.
 $buildNumber=if ($ExpectedTag) { $ExpectedTag.Split('.')[3] } else { (& git -C $repoRoot rev-list --count HEAD).Trim() }
 if ($ExpectedTag -and $ExpectedTag -ne "v$version.$buildNumber") { throw "Expected tag '$ExpectedTag' does not match VERSION '$version'." }
 if ($buildNumber -notmatch '^\d+$' -or [int64]$buildNumber -gt 65534) { throw "Invalid Windows build number '$buildNumber'." }
+$provenancePath = Join-Path $repoRoot 'build\windows-release.json'
+if (Test-Path -LiteralPath $provenancePath -PathType Leaf) { Remove-Item -LiteralPath $provenancePath -Force }
 Invoke-Flutter pub get
 if ($LASTEXITCODE -ne 0) { & powershell -NoProfile -File (Join-Path $repoRoot 'tools\prepare-flutter-windows.ps1'); Assert-LastExitCode 'Preparing junctions'; Invoke-Flutter pub get; Assert-LastExitCode 'Resolving dependencies' }
 & powershell -NoProfile -File (Join-Path $repoRoot 'tools\prepare-flutter-windows.ps1'); Assert-LastExitCode 'Preparing junctions'
@@ -34,7 +36,7 @@ if ($peVersion -ne "$version.$buildNumber" -or $fileInfo.ProductVersion -ne $peV
 $flutter=Invoke-Flutter --version --machine | ConvertFrom-Json; Assert-LastExitCode 'Reading Flutter version'
 $headAfter=(& git -C $repoRoot rev-parse HEAD).Trim(); Assert-LastExitCode 'Rechecking HEAD'
 if ($headAfter -ne $head) { throw 'Source commit changed during the release build.' }
-[ordered]@{sourceCommit=$head;peVersion=$peVersion;exeSha256=(Get-Sha256 $exe);appSoSha256=(Get-Sha256 $appSo);flutterVersion=$flutter.flutterVersion;flutterRevision=$flutter.frameworkRevision} | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $repoRoot 'build\windows-release.json') -Encoding utf8
+[ordered]@{sourceCommit=$head;peVersion=$peVersion;exeSha256=(Get-Sha256 $exe);appSoSha256=(Get-Sha256 $appSo);flutterVersion=$flutter.flutterVersion;flutterRevision=$flutter.frameworkRevision} | ConvertTo-Json | Set-Content -LiteralPath $provenancePath -Encoding utf8
 $finalStatus = @(& git -C $repoRoot status --porcelain) -join "`n"; Assert-LastExitCode 'Rechecking source status'
 if ($finalStatus) { throw 'Release build changed tracked source files.' }
 Write-Host "Built Windows Release $peVersion from $head"
