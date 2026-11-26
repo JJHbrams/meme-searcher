@@ -70,6 +70,10 @@ void main() {
         await File(p.join(payload, 'RELEASE-BUILD.json')).exists(),
         isFalse,
       );
+      expect(
+        await File(p.join(payload, 'native_assets.json')).exists(),
+        isTrue,
+      );
     },
   );
 
@@ -123,6 +127,7 @@ List<int> bundle({String? extra, bool includeUpdater = true}) {
     'data/licenses/webview2/LICENSE.txt',
     'data/licenses/webview2/NOTICE.txt',
     'RELEASE-BUILD.json',
+    'native_assets.json',
     ?extra,
   ]) {
     archive.addFile(ArchiveFile(name, example.length, example));
