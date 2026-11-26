@@ -19,6 +19,88 @@ void main() {
     if (await root.exists()) await root.delete(recursive: true);
   });
 
+  test('recognizes matching web images by their loaded bytes', () async {
+    final store = await LocalLibraryStore.open(directory: root);
+    final first = _media([1, 2, 3], 'first');
+    final firstWeb = first.asset.copyWith(
+      originalUrl: 'https://one.test/meme.gif',
+    );
+    final mirror = firstWeb.copyWith(
+      id: 'mirror',
+      originalUrl: 'https://two.test/meme.gif',
+    );
+    final other = firstWeb.copyWith(
+      id: 'other',
+      originalUrl: 'https://two.test/different.gif',
+    );
+
+    Future<void> load(MemeAsset result) async {
+      final cached = await store.cacheMedia(
+        MediaFile(bytes: first.bytes, path: '', asset: result),
+        previewOnly: false,
+      );
+      await store.refreshRecentAsset(cached.asset);
+    }
+
+    await store.recent(firstWeb.id, asset: firstWeb);
+    await load(firstWeb);
+    await store.recent(mirror.id, asset: mirror);
+    await store.recent(other.id, asset: other);
+    await load(mirror);
+    expect(store.recentIds, ['other', 'mirror']);
+
+    await store.recent(firstWeb.id, asset: firstWeb);
+    await load(firstWeb);
+    expect(store.recentIds, ['first', 'other']);
+    expect((await LocalLibraryStore.open(directory: root)).recentIds, [
+      'first',
+      'other',
+    ]);
+    final cached = store.cachedAssets().single;
+    final saved = await store.keepMedia(
+      MediaFile(bytes: first.bytes, path: cached.filePath!, asset: cached),
+    );
+    await store.recent(other.id, asset: other);
+    await store.recent(cached.id, asset: cached);
+    expect(store.recentIds, [saved.id, 'other']);
+  });
+
+  test('repairs old recent aliases without removing favorites', () async {
+    final store = await LocalLibraryStore.open(directory: root);
+    final original = _media([
+      1,
+      2,
+      3,
+    ], 'original').asset.copyWith(originalUrl: 'https://example.test/same.gif');
+    final old = original.copyWith(id: 'old-alias', favorite: true);
+    final preview = original.copyWith(
+      id: 'preview',
+      isPreviewOnly: true,
+      previewUrl: original.originalUrl,
+    );
+    await store.recent(original.id, asset: original);
+    final index = File(p.join(root.path, 'meme_drawer', 'library.json'));
+    final raw = jsonDecode(await index.readAsString()) as Map<String, dynamic>;
+    raw['recent'] = [preview.id, original.id, old.id, original.id];
+    raw['recentAssets'] = [preview.toJson(), original.toJson(), old.toJson()];
+    raw['favoriteWebAssets'] = [old.toJson()];
+    await index.writeAsString(jsonEncode(raw));
+
+    final repaired = await LocalLibraryStore.open(directory: root);
+    expect(repaired.recentIds, ['preview', 'original']);
+    expect(repaired.favorites().map((asset) => asset.id), ['old-alias']);
+    final persisted = jsonDecode(await index.readAsString()) as Map;
+    expect(persisted['recent'], ['preview', 'original']);
+
+    await repaired.recent(original.id, asset: original);
+    expect(repaired.recentAssets().map((asset) => asset.originalUrl), [
+      original.originalUrl,
+      preview.originalUrl,
+    ]);
+    expect(repaired.recentAssets().first.isPreviewOnly, isFalse);
+    expect(repaired.recentAssets().last.isPreviewOnly, isTrue);
+  });
+
   test(
     'reading an older file keeps it when the cache next overflows',
     () async {
