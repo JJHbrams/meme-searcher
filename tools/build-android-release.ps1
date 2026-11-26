@@ -48,7 +48,18 @@ try {
     if (Test-Path -LiteralPath $provenance -PathType Leaf) {
         Remove-Item -LiteralPath $provenance -Force
     }
-    & flutter build apk --release "--build-name=$versionName" "--build-number=$buildNumber"
+    & flutter pub get
+    if ($LASTEXITCODE -ne 0 -and (Test-Path -LiteralPath '.flutter-plugins-dependencies' -PathType Leaf)) {
+        & pwsh -NoProfile -File (Join-Path $repoRoot 'tools/prepare-flutter-windows.ps1')
+        Assert-LastExitCode 'Preparing Windows plugin junctions'
+        & flutter pub get
+    }
+    Assert-LastExitCode 'Resolving dependencies and registering Android plugins'
+    $registrant = 'android/app/src/main/java/io/flutter/plugins/GeneratedPluginRegistrant.java'
+    if (!(Test-Path -LiteralPath $registrant -PathType Leaf)) {
+        throw 'The Flutter Android plugin registrant is missing.'
+    }
+    & flutter build apk --release --no-pub "--build-name=$versionName" "--build-number=$buildNumber"
     Assert-LastExitCode 'Building the Android APK'
     $apk = (Resolve-Path -LiteralPath 'build/app/outputs/flutter-apk/app-release.apk').Path
     $signer = Join-Path $tools.FullName 'apksigner.bat'
