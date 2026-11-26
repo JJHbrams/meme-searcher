@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
     [ValidatePattern('^v\d+\.\d+\.\d+\.\d+$')][string]$ExpectedTag,
+    [switch]$IncludeAndroid,
     [switch]$Publish
 )
 $ErrorActionPreference = 'Stop'
@@ -45,6 +46,23 @@ if ($ExpectedTag -and $ExpectedTag -ne $tag) { throw "Expected tag '$ExpectedTag
 $archiveName = "meme-searcher-$tag-windows-x64.zip"
 $archivePath = Join-Path $distDir $archiveName
 $checksumPath = Join-Path $distDir 'SHA256SUMS.txt'
+$androidPath = $null
+$androidHash = $null
+if ($IncludeAndroid) {
+    $androidName = "meme-searcher-$tag-android.apk"
+    $androidPath = Require-File $distDir $androidName
+    $androidProvenancePath = Require-File $repoRoot 'build/android-release.json'
+    $androidProvenance = Get-Content -LiteralPath $androidProvenancePath -Raw | ConvertFrom-Json
+    $androidHash = Get-Sha256 $androidPath
+    if ($androidProvenance.sourceCommit -ne $head -or
+        $androidProvenance.versionName -ne $fileVersion -or
+        $androidProvenance.versionCode -ne [int]$fileVersion.Split('.')[-1] -or
+        $androidProvenance.packageName -ne 'dev.memesearcher.meme_searcher' -or
+        $androidProvenance.assetName -ne $androidName -or
+        $androidProvenance.apkSha256 -ne $androidHash) {
+        throw 'The Android APK does not match this release source, version, or SHA-256.'
+    }
+}
 $tempRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath())
 $tempDir = Join-Path $tempRoot ("meme-searcher-package-" + [Guid]::NewGuid().ToString('N'))
 $stageDir = Join-Path $tempDir 'package'
@@ -95,12 +113,15 @@ try {
     if (Test-Path -LiteralPath $archivePath) { Remove-Item -LiteralPath $archivePath -Force }
     Move-Item -LiteralPath $tempArchive -Destination $archivePath
     $hash = Get-Sha256 $archivePath
-    Set-Content -LiteralPath $checksumPath -Value "$hash *$archiveName" -Encoding Ascii
+    $checksums = @("$hash *$archiveName")
+    if ($IncludeAndroid) { $checksums += "$androidHash *$androidName" }
+    Set-Content -LiteralPath $checksumPath -Value $checksums -Encoding Ascii
 } finally {
     if ((Test-Path -LiteralPath $tempDir) -and $tempDir.StartsWith($tempRoot, [StringComparison]::OrdinalIgnoreCase)) { Remove-Item -LiteralPath $tempDir -Recurse -Force }
 }
 Write-Host "Created $archivePath"
 Write-Host "Created $checksumPath"
+if ($IncludeAndroid) { Write-Host "Verified $androidPath" }
 if ($Publish) {
     if (-not $ExpectedTag) { throw '-Publish requires -ExpectedTag.' }
     $tagCommit = (& git -C $repoRoot rev-parse -q --verify "refs/tags/$tag^{commit}").Trim(); Assert-LastExitCode "Verifying local tag $tag"
@@ -108,18 +129,45 @@ if ($Publish) {
     $remoteTag = (& git -C $repoRoot ls-remote origin "refs/tags/$tag^{}").Trim(); Assert-LastExitCode "Reading remote tag $tag"
     if (-not $remoteTag -or ($remoteTag.Split("`t")[0] -ne $head)) { throw "Remote tag $tag does not resolve to HEAD." }
     if (-not (Get-Command gh -ErrorAction SilentlyContinue)) { throw 'GitHub CLI is required for -Publish; use the documented authenticated REST equivalent otherwise.' }
-    & gh release view $tag --repo JJHbrams/meme-searcher 2>$null
-    if ($LASTEXITCODE -eq 0) { throw "A release for $tag already exists; refusing overwrite." }
-    & gh release create $tag $archivePath $checksumPath --repo JJHbrams/meme-searcher --verify-tag --draft --notes-from-tag --title "Meme Snatcher $tag (Windows x64)"; Assert-LastExitCode 'Creating draft release'
-    $draft = & gh release view $tag --repo JJHbrams/meme-searcher --json isDraft,assets | ConvertFrom-Json
-    $checksumHash = Get-Sha256 $checksumPath
-    $archiveAsset = @($draft.assets | Where-Object { $_.name -eq $archiveName -and $_.size -eq (Get-Item $archivePath).Length -and $_.digest -eq "sha256:$hash" })
-    $checksumAsset = @($draft.assets | Where-Object { $_.name -eq 'SHA256SUMS.txt' -and $_.size -eq (Get-Item $checksumPath).Length -and $_.digest -eq "sha256:$checksumHash" })
-    if (-not $draft.isDraft -or $archiveAsset.Count -ne 1 -or $checksumAsset.Count -ne 1) { throw 'Draft asset digest verification failed.' }
-    & gh release edit $tag --repo JJHbrams/meme-searcher --draft=false --latest; Assert-LastExitCode 'Publishing release'
-    $downloadPath = Join-Path $tempRoot ("meme-searcher-download-" + [Guid]::NewGuid().ToString('N') + '.zip')
+    $repo = 'JJHbrams/meme-searcher'
+    $existing = & gh release list --repo $repo --limit 100 --json tagName | ConvertFrom-Json
+    Assert-LastExitCode 'Checking for existing releases'
+    if ($tag -in $existing.tagName) { throw "A release for $tag already exists; refusing overwrite." }
+    $assets = @($archivePath, $checksumPath)
+    if ($IncludeAndroid) { $assets += $androidPath }
+    $title = if ($IncludeAndroid) { "Meme Snatcher $tag (Windows 및 Android)" } else { "Meme Snatcher $tag (Windows x64)" }
+    $notesPath = Join-Path $tempRoot ("meme-searcher-notes-" + [Guid]::NewGuid().ToString('N') + '.md')
     try {
-        Invoke-WebRequest -UseBasicParsing -Uri "https://github.com/JJHbrams/meme-searcher/releases/download/$tag/$archiveName" -OutFile $downloadPath
-        if ((Get-Sha256 $downloadPath) -ne $hash) { throw 'Anonymous release download hash differs from packaged archive.' }
-    } finally { if (Test-Path -LiteralPath $downloadPath) { Remove-Item -LiteralPath $downloadPath -Force } }
+        $notes = & git -C $repoRoot -c i18n.logOutputEncoding=UTF-8 tag --list --format='%(contents)' $tag
+        Assert-LastExitCode 'Reading tag annotation'
+        [IO.File]::WriteAllText($notesPath, (($notes -join "`n").Trim()), [Text.UTF8Encoding]::new($false))
+        & gh release create $tag @assets --repo $repo --verify-tag --draft --notes-file $notesPath --title $title
+        Assert-LastExitCode 'Creating draft release'
+    } finally {
+        if (Test-Path -LiteralPath $notesPath -PathType Leaf) { Remove-Item -LiteralPath $notesPath -Force }
+    }
+    $draft = & gh release view $tag --repo $repo --json isDraft,assets | ConvertFrom-Json
+    Assert-LastExitCode 'Reading draft assets'
+    if (-not $draft.isDraft -or $draft.assets.Count -ne $assets.Count) { throw 'Unexpected release draft.' }
+    $verified = @{}
+    foreach ($path in $assets) {
+        $item = Get-Item -LiteralPath $path
+        $expected = Get-Sha256 $path
+        $matches = @($draft.assets | Where-Object {
+            $_.name -eq $item.Name -and $_.size -eq $item.Length -and $_.digest -eq "sha256:$expected"
+        })
+        if ($matches.Count -ne 1) { throw "Draft asset digest verification failed: $($item.Name)" }
+        $verified[$item.Name] = $expected
+    }
+    & gh release edit $tag --repo $repo --draft=false --latest
+    Assert-LastExitCode 'Publishing release'
+    foreach ($item in $verified.GetEnumerator()) {
+        $downloadPath = Join-Path $tempRoot ("meme-searcher-download-" + [Guid]::NewGuid().ToString('N'))
+        try {
+            Invoke-WebRequest -UseBasicParsing -Uri "https://github.com/$repo/releases/download/$tag/$($item.Key)" -OutFile $downloadPath
+            if ((Get-Sha256 $downloadPath) -ne $item.Value) { throw "Anonymous asset digest mismatch: $($item.Key)" }
+        } finally {
+            if (Test-Path -LiteralPath $downloadPath -PathType Leaf) { Remove-Item -LiteralPath $downloadPath -Force }
+        }
+    }
 }

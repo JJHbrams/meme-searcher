@@ -85,7 +85,7 @@ class MediaActions {
         'mime': _mimeForFile(file),
         'name': _suggestedName(file),
       };
-      if (action == 'copy' && !file.asset.isGif) {
+      if (Platform.isWindows && action == 'copy' && !file.asset.isGif) {
         if (MediaInspector.signatureFormat(file.bytes) == 'PNG') {
           arguments['clipboardPng'] = file.bytes;
         } else {
