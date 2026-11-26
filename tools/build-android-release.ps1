@@ -59,7 +59,7 @@ try {
     if (!(Test-Path -LiteralPath $registrant -PathType Leaf)) {
         throw 'The Flutter Android plugin registrant is missing.'
     }
-    & flutter build apk --release --no-pub "--build-name=$versionName" "--build-number=$buildNumber"
+    & flutter build apk --release "--build-name=$versionName" "--build-number=$buildNumber"
     Assert-LastExitCode 'Building the Android APK'
     $apk = (Resolve-Path -LiteralPath 'build/app/outputs/flutter-apk/app-release.apk').Path
     $signer = Join-Path $tools.FullName 'apksigner.bat'
