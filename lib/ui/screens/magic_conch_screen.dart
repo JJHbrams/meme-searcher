@@ -6,14 +6,26 @@ import 'package:path/path.dart' as p;
 import 'package:url_launcher/url_launcher.dart';
 import 'package:webview_flutter_windows/webview_flutter_windows.dart';
 
-class MagicConchScreen extends StatefulWidget {
+class MagicConchScreen extends StatelessWidget {
   const MagicConchScreen({super.key});
 
   @override
-  State<MagicConchScreen> createState() => _MagicConchScreenState();
+  Widget build(BuildContext context) => Platform.isAndroid
+      ? const AndroidView(
+          viewType: 'dev.memesearcher.meme_searcher/magic_conch',
+        )
+      : const _WindowsMagicConchScreen();
 }
 
-class _MagicConchScreenState extends State<MagicConchScreen> {
+class _WindowsMagicConchScreen extends StatefulWidget {
+  const _WindowsMagicConchScreen();
+
+  @override
+  State<_WindowsMagicConchScreen> createState() =>
+      _WindowsMagicConchScreenState();
+}
+
+class _WindowsMagicConchScreenState extends State<_WindowsMagicConchScreen> {
   final _controller = WebviewController();
   late final _ready = _open();
 

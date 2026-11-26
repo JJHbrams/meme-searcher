@@ -29,5 +29,8 @@ windows/flutter/generated_plugin_registrant.*
 *.pem
 *.pfx
 *.p12
+*.jks
+*.keystore
+**/key.properties
 userdata/
 user_data/

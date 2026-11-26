@@ -1,5 +1,5 @@
 name: meme_searcher
-description: "Windows용 밈 이미지·GIF 검색 및 클립보드 복사 앱."
+description: "Windows와 Android용 밈 이미지·GIF 검색 및 공유 앱."
 publish_to: 'none'
 
 # The following defines the version and build number for your application.

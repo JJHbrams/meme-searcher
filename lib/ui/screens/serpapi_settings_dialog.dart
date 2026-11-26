@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -177,7 +179,7 @@ class _SerpApiSettingsDialogState extends State<SerpApiSettingsDialog> {
                 ),
               ),
             AppVersionFooter(
-              showUpdateCheck: !widget.firstRun,
+              showUpdateCheck: Platform.isWindows && !widget.firstRun,
               enabled: !_busy,
               onInstallingChanged: (updating) =>
                   setState(() => _updating = updating),
