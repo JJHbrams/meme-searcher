@@ -111,6 +111,7 @@ class LocalLibraryStore {
           r.asset.filePath == null || !File(r.asset.filePath!).existsSync(),
     );
     await _evict();
+    changed = _deduplicateRecent() || changed;
     // The original index remains intact until every migration scan completed.
     // A crash after an individual rename is recovered by _reconcileCacheFiles.
     if (changed || beforePrune != _cache.length) await _write();
@@ -597,31 +598,29 @@ class LocalLibraryStore {
     }
     if (!_assets.containsKey(key) && !_recentAssets.containsKey(key)) return;
     _recent
-      ..remove(key)
+      ..removeWhere((previous) => previous == key)
       ..insert(0, key);
-    if (_recent.length > 100) _recent.removeRange(100, _recent.length);
-    _pruneRecent();
+    _deduplicateRecent();
   });
   List<String> get recentIds => List.unmodifiable(_recent);
 
-  Future<void> refreshRecentAsset(MemeAsset asset) async {
+  Future<void> refreshRecentAsset(MemeAsset asset) => _locked(() async {
     if (!asset.isWeb) return;
     final id = _storedId(_recentAssets, asset);
     if (id == null || !_recent.contains(id)) return;
-    await _mutate(() {
-      if (!_recent.contains(id)) return;
-      final previous = _favoriteWebAssets[id] ?? _recentAssets[id];
-      final updated = _merge(
-        asset.copyWith(id: id),
-        previous,
-        previous?.favorite ?? asset.favorite,
-      );
-      _recentAssets[id] = updated;
-      if (_favoriteWebAssets.containsKey(id)) {
-        _favoriteWebAssets[id] = updated.copyWith(favorite: true);
-      }
-    });
-  }
+    final previous = _favoriteWebAssets[id] ?? _recentAssets[id];
+    final updated = _merge(
+      asset.copyWith(id: id),
+      previous,
+      previous?.favorite ?? asset.favorite,
+    );
+    _recentAssets[id] = updated;
+    if (_favoriteWebAssets.containsKey(id)) {
+      _favoriteWebAssets[id] = updated.copyWith(favorite: true);
+    }
+    _deduplicateRecent();
+    await _write();
+  });
 
   Future<MemeAsset> toggleFavorite(String id, {MemeAsset? asset}) =>
       _locked(() async {
@@ -997,6 +996,37 @@ class LocalLibraryStore {
   void _pruneRecent() => _recentAssets.removeWhere(
     (id, _) => !_recent.contains(id) && !_favoriteWebAssets.containsKey(id),
   );
+
+  bool _deduplicateRecent() {
+    final before = _recent.length;
+    final ids = <String>{};
+    final digests = <String>{};
+    final sources = <(bool, String)>{};
+    // IDs can change as a result moves from web to cache to the library.
+    // Scan newest first, keeping that position when an alias is found.
+    _recent.removeWhere((id) {
+      final asset = trackedById(id);
+      if (asset == null || !ids.add(id)) return true;
+      final path = asset.filePath;
+      final digest = path != null && _inside(path, _cacheDir)
+          ? _name(path)?.$1
+          : _assetDigest(asset);
+      final source = asset.isPreviewOnly ? asset.previewUrl : asset.originalUrl;
+      if ((digest != null && digests.contains(digest)) ||
+          (source != null && sources.contains((asset.isPreviewOnly, source)))) {
+        return true;
+      }
+      if (digest != null) digests.add(digest);
+      if (source != null && source.isNotEmpty) {
+        sources.add((asset.isPreviewOnly, source));
+      }
+      return false;
+    });
+    if (_recent.length > 100) _recent.removeRange(100, _recent.length);
+    _pruneRecent();
+    return before != _recent.length;
+  }
+
   static String _key(String x) => x.trim().toLowerCase();
   static String _ext(String x) {
     final v = x.replaceAll(RegExp('[^A-Za-z0-9]'), '').toLowerCase();
