@@ -12,11 +12,15 @@ function Assert-LastExitCode([string]$Action) {
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $releaseDir = Join-Path $repoRoot 'build\windows\x64\runner\Release'
 $exePath = Join-Path $releaseDir 'meme_searcher.exe'
+$updaterPath = Join-Path $releaseDir 'meme_updater.exe'
 $versionPath = Join-Path $repoRoot 'VERSION'
 $distDir = Join-Path $repoRoot 'dist'
 
 if (-not (Test-Path -LiteralPath $exePath -PathType Leaf)) {
     throw "Release executable not found: $exePath. Run 'flutter build windows --release' first."
+}
+if (-not (Test-Path -LiteralPath $updaterPath -PathType Leaf)) {
+    throw "Update executable not found: $updaterPath. Run 'flutter build windows --release' first."
 }
 
 $repoVersion = (Get-Content -LiteralPath $versionPath -Raw).Trim()
@@ -49,12 +53,12 @@ try {
     New-Item -ItemType Directory -Path $stageDir -Force | Out-Null
 
     # Flutter can leave test files in the output directory. CMake records the
-    # runtime files it actually installed; the runner is built in place.
+    # runtime files it actually installed. The two executables are built in place.
     $releasePrefix = [IO.Path]::GetFullPath($releaseDir) + [IO.Path]::DirectorySeparatorChar
     $manifest = Join-Path $repoRoot 'build/windows/x64/install_manifest.txt'
     $installed = Get-Content -LiteralPath $manifest | ForEach-Object { [IO.Path]::GetFullPath($_) } |
         Where-Object { $_.StartsWith($releasePrefix, [StringComparison]::OrdinalIgnoreCase) }
-    foreach ($source in (@($installed) + $exePath | Sort-Object -Unique)) {
+    foreach ($source in (@($installed) + $exePath + $updaterPath | Sort-Object -Unique)) {
         $relative = $source.Substring($releasePrefix.Length)
         $rootCopy = Join-Path $repoRoot $relative
         if ((Get-FileHash -LiteralPath $rootCopy).Hash -ne (Get-FileHash -LiteralPath $source).Hash) {
