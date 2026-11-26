@@ -83,9 +83,10 @@ void main() {
                 calls++;
                 if (calls == 1) {
                   onProgress(const UpdateProgress(UpdatePhase.download, .5));
-                  return pending.future;
+                  await pending.future;
                 }
                 onProgress(const UpdateProgress(UpdatePhase.restart));
+                return AppUpdateHandoff.windowsRestart;
               },
             ),
           ),
@@ -112,4 +113,80 @@ void main() {
       expect(find.text('업데이트를 적용하고 앱을 다시 시작해요.'), findsOneWidget);
     },
   );
+
+  testWidgets('Android installation can resume after granting permission', (
+    tester,
+  ) async {
+    const channel = MethodChannel(MediaActions.channelName);
+    final messenger = tester.binding.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(channel, (_) async => '1.8.1.91');
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+    final installing = <bool>[];
+    var attempts = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: AppVersionFooter(
+            showUpdateCheck: true,
+            check: (_) async => const AndroidRelease(
+              'v1.9.0.95',
+              hasApk: true,
+              apkSha256: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+            ),
+            install: (_, {required onProgress}) async => ++attempts == 1
+                ? AppUpdateHandoff.androidPermission
+                : AppUpdateHandoff.androidInstaller,
+            onInstallingChanged: installing.add,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('업데이트 확인'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('업데이트 설치'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('이 출처 허용'), findsOneWidget);
+    await tester.tap(find.text('업데이트 설치'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Android 설치 화면'), findsOneWidget);
+    expect(installing, [true, false, true, false]);
+  });
+
+  testWidgets('a newer Windows EXE already on disk only needs a restart', (
+    tester,
+  ) async {
+    const channel = MethodChannel(MediaActions.channelName);
+    final messenger = tester.binding.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(channel, (_) async => '1.8.1.91');
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+    var checks = 0;
+    var restarts = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: AppVersionFooter(
+            showUpdateCheck: true,
+            readInstalledVersion: () async => '1.9.0.95',
+            check: (_) async {
+              checks++;
+              return null;
+            },
+            restartInstalled: () async {
+              restarts++;
+            },
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('업데이트 확인'));
+    await tester.pumpAndSettle();
+    expect(checks, 0);
+    expect(find.textContaining('설치 폴더에 v1.9.0.95'), findsOneWidget);
+    expect(find.text('업데이트 설치'), findsNothing);
+    await tester.tap(find.text('앱 다시 시작'));
+    await tester.pump();
+    expect(restarts, 1);
+  });
 }

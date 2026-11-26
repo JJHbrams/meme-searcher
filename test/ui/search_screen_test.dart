@@ -106,8 +106,10 @@ void main() {
     const channel = MethodChannel(MediaActions.channelName);
     final messenger = tester.binding.defaultBinaryMessenger;
     messenger.setMockMethodCallHandler(channel, (call) async {
-      expect(call.method, 'getAppVersion');
-      return '2.4.6.37';
+      return switch (call.method) {
+        'getAppVersion' || 'getInstalledAppVersion' => '2.4.6.37',
+        _ => throw StateError('Unexpected call ${call.method}'),
+      };
     });
     addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
     final services = _FakeServices()..deferred = false;

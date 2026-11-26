@@ -188,8 +188,12 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
   DWORD image_size = MAX_PATH;
   const bool trusted_parent = QueryFullProcessImageNameW(parent, 0, image, &image_size) &&
       SamePath(image, install / kApp);
-  if (!trusted_parent || !NewerVersion(stage / L"payload" / kApp, install / kApp)) {
-    WriteError(stage, L"업데이트 대상 앱 또는 버전을 확인할 수 없습니다.");
+  if (!trusted_parent) {
+    WriteError(stage, L"실행 중인 앱과 설치 폴더의 실행 파일이 다릅니다. 앱을 다시 시작해 주세요.");
+    CloseHandle(parent); return 5;
+  }
+  if (!NewerVersion(stage / L"payload" / kApp, install / kApp)) {
+    WriteError(stage, L"업데이트 파일이 설치 폴더의 앱보다 새 버전인지 확인할 수 없습니다.");
     CloseHandle(parent); return 5;
   }
   std::wstring error;
