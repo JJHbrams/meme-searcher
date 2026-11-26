@@ -64,7 +64,7 @@ try {
         [IO.Directory]::CreateDirectory((Split-Path -Parent $destination)) | Out-Null
         Copy-Item -LiteralPath $source -Destination $destination
     }
-    foreach ($required in @('flutter_windows.dll', 'data/app.so', 'data/icudtl.dat', 'data/flutter_assets/AssetManifest.bin')) {
+    foreach ($required in @('meme_updater.exe', 'flutter_windows.dll', 'data/app.so', 'data/icudtl.dat', 'data/flutter_assets/AssetManifest.bin')) {
         if (-not (Test-Path -LiteralPath (Join-Path $stageDir $required) -PathType Leaf)) {
             throw "Missing $required in release manifest. Run 'flutter build windows --release' first."
         }

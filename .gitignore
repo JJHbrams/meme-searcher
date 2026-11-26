@@ -5,6 +5,8 @@
 build/
 dist/
 /meme_searcher.exe
+/meme_updater.exe
+/.meme-update-*/
 /flutter_windows.dll
 /WebView2Loader.dll
 /*_plugin.dll

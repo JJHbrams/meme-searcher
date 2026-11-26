@@ -29,6 +29,17 @@ add_executable(${BINARY_NAME} WIN32
   "runner.exe.manifest"
 )
 
+# The updater is intentionally a small native executable. It runs from an
+# application-created staging directory after the Flutter process has exited,
+# so it can replace locked runtime files without elevation.
+add_executable(meme_updater WIN32
+  "../updater/main.cpp"
+)
+apply_standard_settings(meme_updater)
+target_compile_definitions(meme_updater PRIVATE "NOMINMAX")
+target_compile_options(meme_updater PRIVATE /utf-8)
+target_link_libraries(meme_updater PRIVATE "version.lib" "user32.lib")
+
 # Apply the standard set of build settings. This can be removed for applications
 # that need different build settings.
 apply_standard_settings(${BINARY_NAME})

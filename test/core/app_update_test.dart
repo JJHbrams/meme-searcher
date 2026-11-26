@@ -13,6 +13,7 @@ void main() {
     bool draft = false,
     bool prerelease = false,
     bool zip = true,
+    String? digest,
   }) => checkForAppUpdate(
     installed,
     client: MockClient((request) async {
@@ -31,6 +32,7 @@ void main() {
               {
                 'name': 'meme-searcher-$tag-windows-x64.zip',
                 'state': 'uploaded',
+                'digest': digest,
               },
           ],
         }),
@@ -48,6 +50,20 @@ void main() {
     expect(await check('1.10.0.1', 'v1.9.9.99'), isNull);
     expect(await check('1.4.0.28', 'v1.4.0.28'), isNull);
     expect((await check('1.9.9.99', 'v2.0.0.1'))?.tag, 'v2.0.0.1');
+  });
+
+  test('in-app install requires the matching official ZIP digest', () async {
+    final hash = '0' * 64;
+    final verified = await check(
+      '1.7.0.51',
+      'v1.8.0.52',
+      digest: 'sha256:$hash',
+    );
+    expect(verified?.canInstall, isTrue);
+    expect(verified?.zipSha256, hash);
+    final legacy = await check('1.7.0.51', 'v1.8.0.52', digest: 'md5:$hash');
+    expect(legacy?.hasZip, isTrue);
+    expect(legacy?.canInstall, isFalse);
   });
 
   test(
