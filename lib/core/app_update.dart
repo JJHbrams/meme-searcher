@@ -5,14 +5,25 @@ import 'package:http/http.dart' as http;
 
 const _repository = 'JJHbrams/meme-searcher';
 final _versionPattern = RegExp(r'^\d+\.\d+\.\d+\.\d+$');
+final _sha256Pattern = RegExp(r'^sha256:([a-f0-9]{64})$');
 
 class WindowsRelease {
-  const WindowsRelease(this.tag, {required this.hasZip});
+  const WindowsRelease(this.tag, {required this.hasZip, this.zipSha256});
 
   final String tag;
   final bool hasZip;
+  final String? zipSha256;
+
+  bool get canInstall =>
+      hasZip &&
+      tag.startsWith('v') &&
+      _versionPattern.hasMatch(tag.substring(1)) &&
+      _sha256Pattern.hasMatch('sha256:$zipSha256');
 
   static String zipName(String tag) => 'meme-searcher-$tag-windows-x64.zip';
+
+  Uri get releasePage =>
+      Uri.https('github.com', '/$_repository/releases/tag/$tag');
 
   Uri get url => Uri.https(
     'github.com',
@@ -68,15 +79,24 @@ Future<WindowsRelease?> checkForAppUpdate(
       if (latest[i] < installed[i]) return null;
       if (latest[i] > installed[i]) {
         final assets = data['assets'];
-        final hasZip =
-            assets is List &&
-            assets.any(
-              (asset) =>
-                  asset is Map &&
-                  asset['name'] == WindowsRelease.zipName(tag) &&
-                  asset['state'] == 'uploaded',
-            );
-        return WindowsRelease(tag, hasZip: hasZip);
+        final zip = assets is List
+            ? assets
+                  .whereType<Map>()
+                  .where(
+                    (asset) =>
+                        asset['name'] == WindowsRelease.zipName(tag) &&
+                        asset['state'] == 'uploaded',
+                  )
+                  .firstOrNull
+            : null;
+        final digest = zip?['digest'];
+        return WindowsRelease(
+          tag,
+          hasZip: zip != null,
+          zipSha256: digest is String
+              ? _sha256Pattern.firstMatch(digest)?.group(1)
+              : null,
+        );
       }
     }
     return null;
