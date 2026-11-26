@@ -6,8 +6,6 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import android.os.Bundle
-import android.provider.Settings
 import android.view.View
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -23,7 +21,6 @@ import io.flutter.plugin.platform.PlatformViewFactory
 import io.flutter.plugin.common.StandardMessageCodec
 import java.io.File
 import java.io.FileInputStream
-import java.io.InputStream
 import java.util.UUID
 
 class MainActivity : FlutterActivity() {
@@ -34,7 +31,7 @@ class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         flutterEngine.platformViewsController.registry.registerViewFactory(
-            "dev.memesearcher.meme_searcher/magic_conch", MagicConchViewFactory(applicationContext)
+            "dev.memesearcher.meme_searcher/magic_conch", MagicConchViewFactory()
         )
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName).setMethodCallHandler { call, result ->
             when (call.method) {
@@ -71,10 +68,6 @@ class MainActivity : FlutterActivity() {
                 clipData = ClipData.newUri(contentResolver, media.name, media.uri)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
-            // Explicit grants cover receivers which ignore the ClipData grant on older Android.
-            packageManager.queryIntentActivities(send, 0).forEach {
-                grantUriPermission(it.activityInfo.packageName, media.uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
             startActivity(Intent.createChooser(send, "밈 공유"))
             result.success(mapOf("mode" to "share"))
         } catch (error: IllegalArgumentException) {
@@ -100,8 +93,10 @@ class MainActivity : FlutterActivity() {
                 putExtra(Intent.EXTRA_TITLE, name)
             }, saveRequestCode)
         } catch (error: IllegalArgumentException) {
+            pendingSave = null
             result.error("invalid_media", error.message, null)
         } catch (error: Exception) {
+            pendingSave = null
             result.error("save_failed", "저장 위치를 열지 못했어요.", null)
         }
     }
@@ -161,23 +156,21 @@ class MainActivity : FlutterActivity() {
     }
 
     @Suppress("DEPRECATION")
-    private fun displayVersion(): String {
-        val name = BuildConfig.VERSION_NAME
-        return if (name.count { it == '.' } >= 3) name else "$name.${BuildConfig.VERSION_CODE}"
-    }
+    private fun displayVersion(): String? =
+        packageManager.getPackageInfo(packageName, 0).versionName
 
     private data class StagedMedia(val name: String, val mime: String, val uri: Uri)
     private data class PendingSave(val source: File, val result: MethodChannel.Result)
 }
 
-private class MagicConchViewFactory(private val context: Context) : PlatformViewFactory(StandardMessageCodec.INSTANCE) {
-    override fun create(context: Context, viewId: Int, args: Any?): PlatformView = MagicConchPlatformView(this.context)
+private class MagicConchViewFactory : PlatformViewFactory(StandardMessageCodec.INSTANCE) {
+    override fun create(context: Context, viewId: Int, args: Any?): PlatformView = MagicConchPlatformView(context)
 }
 
 private class MagicConchPlatformView(private val context: Context) : PlatformView {
     private val webView = WebView(context).apply {
         settings.javaScriptEnabled = true
-        settings.domStorageEnabled = false
+        settings.domStorageEnabled = true
         settings.allowFileAccess = false
         settings.allowContentAccess = false
         settings.allowUniversalAccessFromFileURLs = false
