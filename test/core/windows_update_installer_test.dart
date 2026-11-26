@@ -118,7 +118,7 @@ List<int> bundle({String? extra, bool includeUpdater = true}) {
     'data/flutter_assets/AssetManifest.bin',
     'data/licenses/webview2/LICENSE.txt',
     'data/licenses/webview2/NOTICE.txt',
-    if (extra != null) extra,
+    ?extra,
   ]) {
     archive.addFile(ArchiveFile(name, example.length, example));
   }

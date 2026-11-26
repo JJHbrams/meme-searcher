@@ -98,13 +98,16 @@ void main() {
       await tester.pump();
       expect(find.bySemanticsLabel('업데이트를 다운로드하는 중이에요. 50%'), findsOneWidget);
       await tester.tap(find.text('업데이트 적용 중…'));
+      await tester.tap(find.text('업데이트 확인'));
       await tester.pump();
       expect(calls, 1);
+      expect(find.bySemanticsLabel('업데이트를 다운로드하는 중이에요. 50%'), findsOneWidget);
       pending.completeError(const AppUpdateException('다운로드 파일을 확인할 수 없어요.'));
       await tester.pumpAndSettle();
       expect(find.text('다운로드 파일을 확인할 수 없어요.'), findsOneWidget);
+      expect(find.text('릴리즈 페이지 열기'), findsOneWidget);
       await tester.tap(find.text('업데이트 설치'));
-      await tester.pumpAndSettle();
+      await tester.pump();
       expect(calls, 2);
       expect(find.text('업데이트를 적용하고 앱을 다시 시작해요.'), findsOneWidget);
     },

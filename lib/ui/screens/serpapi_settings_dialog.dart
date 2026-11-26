@@ -26,6 +26,8 @@ class SerpApiSettingsDialog extends StatefulWidget {
 class _SerpApiSettingsDialogState extends State<SerpApiSettingsDialog> {
   final _key = TextEditingController();
   bool _busy = false;
+  bool _updating = false;
+  bool get _locked => _busy || _updating;
   String? _error;
 
   @override
@@ -51,7 +53,7 @@ class _SerpApiSettingsDialogState extends State<SerpApiSettingsDialog> {
   }
 
   Future<void> _connect({bool fromClipboard = false}) async {
-    if (_busy) return;
+    if (_locked) return;
     setState(() {
       _busy = true;
       _error = null;
@@ -86,7 +88,7 @@ class _SerpApiSettingsDialogState extends State<SerpApiSettingsDialog> {
   }
 
   Future<void> _close({bool delete = false}) async {
-    if (_busy) return;
+    if (_locked) return;
     setState(() => _busy = true);
     try {
       if (delete) {
@@ -114,7 +116,7 @@ class _SerpApiSettingsDialogState extends State<SerpApiSettingsDialog> {
 
   @override
   Widget build(BuildContext context) => PopScope(
-    canPop: !_busy && !widget.firstRun,
+    canPop: !_locked && !widget.firstRun,
     child: AlertDialog(
       scrollable: true,
       title: Text(widget.firstRun ? 'Google 이미지 검색 연결' : '외부 검색 설정'),
@@ -135,11 +137,13 @@ class _SerpApiSettingsDialogState extends State<SerpApiSettingsDialog> {
               spacing: 8,
               children: [
                 TextButton(
-                  onPressed: _busy ? null : () => _openPage('/users/sign_up'),
+                  onPressed: _locked ? null : () => _openPage('/users/sign_up'),
                   child: const Text('회원가입'),
                 ),
                 OutlinedButton.icon(
-                  onPressed: _busy ? null : () => _openPage('/manage-api-key'),
+                  onPressed: _locked
+                      ? null
+                      : () => _openPage('/manage-api-key'),
                   icon: const Icon(Icons.open_in_new),
                   label: const Text('API 키 페이지 열기'),
                 ),
@@ -149,14 +153,14 @@ class _SerpApiSettingsDialogState extends State<SerpApiSettingsDialog> {
             const Text('2. 복사한 키를 확인하고 이 기기의 보안 저장소에 저장하세요.'),
             const SizedBox(height: 8),
             FilledButton.icon(
-              onPressed: _busy ? null : () => _connect(fromClipboard: true),
+              onPressed: _locked ? null : () => _connect(fromClipboard: true),
               icon: const Icon(Icons.content_paste),
               label: const Text('복사한 키로 연결'),
             ),
             const SizedBox(height: 16),
             TextField(
               controller: _key,
-              enabled: !_busy,
+              enabled: !_locked,
               obscureText: true,
               autocorrect: false,
               enableSuggestions: false,
@@ -172,22 +176,27 @@ class _SerpApiSettingsDialogState extends State<SerpApiSettingsDialog> {
                   style: TextStyle(color: Theme.of(context).colorScheme.error),
                 ),
               ),
-            AppVersionFooter(showUpdateCheck: !widget.firstRun),
+            AppVersionFooter(
+              showUpdateCheck: !widget.firstRun,
+              enabled: !_busy,
+              onInstallingChanged: (updating) =>
+                  setState(() => _updating = updating),
+            ),
           ],
         ),
       ),
       actions: [
         if (widget.settings.serpApiKeySource == 'app')
           TextButton(
-            onPressed: _busy ? null : () => _close(delete: true),
+            onPressed: _locked ? null : () => _close(delete: true),
             child: const Text('저장된 키 삭제'),
           ),
         TextButton(
-          onPressed: _busy ? null : _close,
+          onPressed: _locked ? null : _close,
           child: Text(widget.firstRun ? '나중에' : '닫기'),
         ),
         TextButton(
-          onPressed: _busy ? null : _connect,
+          onPressed: _locked ? null : _connect,
           child: const Text('입력한 키로 연결'),
         ),
       ],

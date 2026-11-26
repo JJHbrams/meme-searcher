@@ -64,6 +64,7 @@ Future<void> installAppUpdate(
   _installing = true;
   final transport = http.Client();
   Directory? stage;
+  var helperStarted = false;
   var handedOff = false;
   try {
     final executable = File(Platform.resolvedExecutable);
@@ -90,11 +91,14 @@ Future<void> installAppUpdate(
       '$pid',
       stage.absolute.path,
     ], mode: ProcessStartMode.detached);
+    helperStarted = true;
 
     final ready = File(p.join(stage.path, 'ready'));
+    final failure = File(p.join(stage.path, 'error.txt'));
     final timeout = Stopwatch()..start();
     while (!await ready.exists()) {
-      if (timeout.elapsed >= const Duration(seconds: 12)) {
+      if (await failure.exists() ||
+          timeout.elapsed >= const Duration(seconds: 12)) {
         throw const AppUpdateException('업데이트를 시작하지 못했어요. 앱을 다시 열고 시도해 주세요.');
       }
       await Future<void>.delayed(const Duration(milliseconds: 100));
@@ -112,8 +116,11 @@ Future<void> installAppUpdate(
     if (!handedOff) {
       if (stage != null) {
         try {
-          await File(p.join(stage.path, 'cancelled')).create();
-          await stage.delete(recursive: true);
+          if (helperStarted) {
+            await File(p.join(stage.path, 'cancelled')).create();
+          } else {
+            await stage.delete(recursive: true);
+          }
         } on FileSystemException {
           // The helper may still be winding down and holding its executable.
         }

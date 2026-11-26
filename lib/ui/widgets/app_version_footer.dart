@@ -14,12 +14,16 @@ typedef AppUpdateInstaller = Future<void> Function(
 class AppVersionFooter extends StatefulWidget {
   const AppVersionFooter({
     required this.showUpdateCheck,
+    this.enabled = true,
+    this.onInstallingChanged,
     this.check = checkForAppUpdate,
     this.install = installAppUpdate,
     super.key,
   });
 
   final bool showUpdateCheck;
+  final bool enabled;
+  final ValueChanged<bool>? onInstallingChanged;
   final Future<WindowsRelease?> Function(String) check;
   final AppUpdateInstaller install;
 
@@ -32,15 +36,17 @@ class _AppVersionFooterState extends State<AppVersionFooter> {
       .invokeMethod<String>('getAppVersion');
   bool _checking = false;
   bool _installing = false;
+  bool _installFailed = false;
   WindowsRelease? _release;
   String? _message;
   UpdateProgress? _progress;
 
   Future<void> _check(String installed) async {
-    if (_checking) return;
+    if (_checking || _installing) return;
     setState(() {
       _checking = true;
       _release = null;
+      _installFailed = false;
       _message = null;
       _progress = null;
     });
@@ -103,9 +109,11 @@ class _AppVersionFooterState extends State<AppVersionFooter> {
     if (_installing) return;
     setState(() {
       _installing = true;
+      _installFailed = false;
       _message = null;
       _progress = const UpdateProgress(UpdatePhase.download);
     });
+    widget.onInstallingChanged?.call(true);
     try {
       await widget.install(release, onProgress: _onInstallProgress);
       if (mounted) {
@@ -120,17 +128,21 @@ class _AppVersionFooterState extends State<AppVersionFooter> {
       if (mounted) {
         setState(() {
           _installing = false;
+          _installFailed = true;
           _progress = null;
           _message = error.message;
         });
+        widget.onInstallingChanged?.call(false);
       }
     } catch (_) {
       if (mounted) {
         setState(() {
           _installing = false;
+          _installFailed = true;
           _progress = null;
           _message = '업데이트를 설치하지 못했어요. 다시 시도해 주세요.';
         });
+        widget.onInstallingChanged?.call(false);
       }
     }
   }
@@ -167,28 +179,29 @@ class _AppVersionFooterState extends State<AppVersionFooter> {
                 ),
                 if (widget.showUpdateCheck)
                   TextButton(
-                    onPressed: _checking ? null : () => _check(version),
+                    onPressed: _checking || _installing || !widget.enabled
+                        ? null
+                        : () => _check(version),
                     child: Text(_checking ? '확인 중…' : '업데이트 확인'),
                   ),
               ],
             ),
             if (_message != null)
               Semantics(liveRegion: true, child: SelectableText(_message!)),
-            if (release != null)
-              if (release.canInstall)
-                TextButton.icon(
-                  onPressed: _installing
-                      ? null
-                      : () => _installRelease(release),
-                  icon: const Icon(Icons.system_update_alt),
-                  label: Text(_installing ? '업데이트 적용 중…' : '업데이트 설치'),
-                )
-              else
-                TextButton.icon(
-                  onPressed: () => _openRelease(release),
-                  icon: const Icon(Icons.open_in_new),
-                  label: const Text('릴리즈 페이지 열기'),
-                ),
+            if (release?.canInstall == true)
+              TextButton.icon(
+                onPressed: _installing || !widget.enabled
+                    ? null
+                    : () => _installRelease(release!),
+                icon: const Icon(Icons.system_update_alt),
+                label: Text(_installing ? '업데이트 적용 중…' : '업데이트 설치'),
+              ),
+            if (release != null && (!release.canInstall || _installFailed))
+              TextButton.icon(
+                onPressed: () => _openRelease(release),
+                icon: const Icon(Icons.open_in_new),
+                label: const Text('릴리즈 페이지 열기'),
+              ),
             if (_progress != null)
               Semantics(
                 liveRegion: true,
