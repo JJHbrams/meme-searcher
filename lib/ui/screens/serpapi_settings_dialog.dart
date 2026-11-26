@@ -184,6 +184,14 @@ class _SerpApiSettingsDialogState extends State<SerpApiSettingsDialog> {
               onInstallingChanged: (updating) =>
                   setState(() => _updating = updating),
             ),
+            if (!widget.firstRun)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  'Inspired by seongyoong',
+                  style: Theme.of(context).textTheme.labelSmall,
+                ),
+              ),
           ],
         ),
       ),

@@ -114,6 +114,7 @@ void main() {
     await openApp(tester, services);
     expect(find.text('Google 이미지 검색 연결'), findsOneWidget);
     expect(find.text('업데이트 확인'), findsNothing);
+    expect(find.text('Inspired by seongyoong'), findsNothing);
     await tester.tap(find.text('나중에'));
     await tester.pumpAndSettle();
     expect(services.deferred, isTrue);
@@ -125,6 +126,7 @@ void main() {
     expect(find.text('API 키 페이지 열기'), findsOneWidget);
     expect(find.text('Meme Snatcher · v2.4.6.37'), findsOneWidget);
     expect(find.text('업데이트 확인'), findsOneWidget);
+    expect(find.text('Inspired by seongyoong'), findsOneWidget);
   });
 
   testWidgets('clipboard connection only imports a key on request', (
