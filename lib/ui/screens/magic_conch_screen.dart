@@ -1,35 +1,64 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:path/path.dart' as p;
 import 'package:url_launcher/url_launcher.dart';
 import 'package:webview_flutter_windows/webview_flutter_windows.dart';
 
-class MagicConchScreen extends StatelessWidget {
+const _conchViewType = 'dev.memesearcher.meme_searcher/magic_conch';
+
+class MagicConchScreen extends StatefulWidget {
   const MagicConchScreen({super.key});
 
   @override
-  Widget build(BuildContext context) => Platform.isAndroid
-      ? const AndroidView(
-          viewType: 'dev.memesearcher.meme_searcher/magic_conch',
-        )
-      : const _WindowsMagicConchScreen();
+  State<MagicConchScreen> createState() => _MagicConchScreenState();
 }
 
-class _WindowsMagicConchScreen extends StatefulWidget {
-  const _WindowsMagicConchScreen();
+class _MagicConchScreenState extends State<MagicConchScreen> {
+  final _windowsController = Platform.isAndroid ? null : WebviewController();
+  MethodChannel? _androidChannel;
+  StreamSubscription<LoadingState>? _loading;
+  late final AppLifecycleListener _lifecycle;
+  late final _ready = _openWindows();
 
   @override
-  State<_WindowsMagicConchScreen> createState() =>
-      _WindowsMagicConchScreenState();
-}
+  void initState() {
+    super.initState();
+    _lifecycle = AppLifecycleListener(
+      onStateChange: (_) => unawaited(_syncAudioFocus()),
+    );
+  }
 
-class _WindowsMagicConchScreenState extends State<_WindowsMagicConchScreen> {
-  final _controller = WebviewController();
-  late final _ready = _open();
+  void _onAndroidViewCreated(int id) {
+    _androidChannel = MethodChannel('$_conchViewType/$id');
+    unawaited(_syncAudioFocus());
+  }
 
-  Future<bool> _open() async {
+  Future<void> _syncAudioFocus() async {
+    if (!mounted) return;
+    final foreground =
+        WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
+    final android = _androidChannel;
+    final windows = _windowsController;
+    try {
+      if (android != null) {
+        await android.invokeMethod<void>('setForeground', foreground);
+      } else if (windows != null && windows.value.isInitialized) {
+        await windows.executeScript(
+          'window.__memeConchAudio?.setForeground($foreground)',
+        );
+      }
+    } on MissingPluginException {
+      // The platform view may have been removed during a lifecycle transition.
+    } on PlatformException {
+      // A navigation can replace the document while the script is in flight.
+    }
+  }
+
+  Future<bool> _openWindows() async {
+    final controller = _windowsController!;
     if (await WebviewController.getWebViewVersion() == null) return false;
     if (!mounted) return false;
     final directory = p.join(
@@ -43,26 +72,40 @@ class _WindowsMagicConchScreenState extends State<_WindowsMagicConchScreen> {
       throw StateError('Missing bundled Magical Conch app');
     }
     if (!mounted) return false;
-    await _controller.initialize();
+    await controller.initialize();
     if (!mounted) return false;
-    await _controller.addVirtualHostNameMapping(
+    _loading = controller.loadingState.listen((state) {
+      if (state == LoadingState.navigationCompleted) {
+        unawaited(_syncAudioFocus());
+      }
+    });
+    await controller.addVirtualHostNameMapping(
       'conch.example',
       directory,
       WebviewHostResourceAccessKind.deny,
     );
     if (!mounted) return false;
-    await _controller.loadUrl('https://conch.example/index.html');
+    await controller.loadUrl('https://conch.example/index.html');
     return true;
   }
 
   @override
   void dispose() {
-    unawaited(_controller.dispose());
+    _lifecycle.dispose();
+    unawaited(_loading?.cancel());
+    unawaited(_windowsController?.dispose());
     super.dispose();
   }
 
   @override
-  Widget build(BuildContext context) => FutureBuilder<bool>(
+  Widget build(BuildContext context) => Platform.isAndroid
+      ? AndroidView(
+          viewType: _conchViewType,
+          onPlatformViewCreated: _onAndroidViewCreated,
+        )
+      : _buildWindowsWebView();
+
+  Widget _buildWindowsWebView() => FutureBuilder<bool>(
     future: _ready,
     builder: (context, snapshot) {
       if (snapshot.connectionState != ConnectionState.done) {
@@ -72,7 +115,7 @@ class _WindowsMagicConchScreenState extends State<_WindowsMagicConchScreen> {
       }
       if (snapshot.data == true) {
         return Webview(
-          _controller,
+          _windowsController!,
           permissionRequested: (_, _, _) => WebviewPermissionDecision.deny,
         );
       }

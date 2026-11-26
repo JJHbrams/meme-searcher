@@ -19,6 +19,7 @@ import android.webkit.WebViewClient
 import androidx.core.content.FileProvider
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.platform.PlatformView
@@ -38,7 +39,8 @@ class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         flutterEngine.platformViewsController.registry.registerViewFactory(
-            "dev.memesearcher.meme_searcher/magic_conch", MagicConchViewFactory()
+            "dev.memesearcher.meme_searcher/magic_conch",
+            MagicConchViewFactory(flutterEngine.dartExecutor.binaryMessenger)
         )
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, channelName).setMethodCallHandler { call, result ->
             when (call.method) {
@@ -308,11 +310,24 @@ class MainActivity : FlutterActivity() {
     }
 }
 
-private class MagicConchViewFactory : PlatformViewFactory(StandardMessageCodec.INSTANCE) {
-    override fun create(context: Context, viewId: Int, args: Any?): PlatformView = MagicConchPlatformView(context)
+private class MagicConchViewFactory(
+    private val binaryMessenger: BinaryMessenger
+) : PlatformViewFactory(StandardMessageCodec.INSTANCE) {
+    override fun create(context: Context, viewId: Int, args: Any?): PlatformView =
+        MagicConchPlatformView(context, viewId, binaryMessenger)
 }
 
-private class MagicConchPlatformView(private val context: Context) : PlatformView {
+private class MagicConchPlatformView(
+    private val context: Context,
+    viewId: Int,
+    binaryMessenger: BinaryMessenger
+) : PlatformView {
+    private var isForeground = false
+    private var isDisposed = false
+    private val channel = MethodChannel(
+        binaryMessenger,
+        "dev.memesearcher.meme_searcher/magic_conch/$viewId"
+    )
     private val webView = WebView(context).apply {
         settings.javaScriptEnabled = true
         settings.domStorageEnabled = true
@@ -321,15 +336,47 @@ private class MagicConchPlatformView(private val context: Context) : PlatformVie
         settings.allowUniversalAccessFromFileURLs = false
         settings.allowFileAccessFromFileURLs = false
         settings.mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_NEVER_ALLOW
-        webViewClient = MagicConchClient(context)
-        loadUrl("https://conch.example/index.html")
+        webViewClient = MagicConchClient(context) { applyForegroundState() }
+    }
+
+    init {
+        channel.setMethodCallHandler { call, result ->
+            when (call.method) {
+                "setForeground" -> {
+                    val foreground = call.arguments as? Boolean
+                    if (foreground == null) {
+                        result.error("invalid_argument", "foreground must be a boolean.", null)
+                    } else {
+                        isForeground = foreground
+                        applyForegroundState()
+                        result.success(null)
+                    }
+                }
+                else -> result.notImplemented()
+            }
+        }
+        webView.loadUrl("https://conch.example/index.html")
     }
 
     override fun getView(): View = webView
-    override fun dispose() { webView.stopLoading(); webView.destroy() }
+    override fun dispose() {
+        isDisposed = true
+        channel.setMethodCallHandler(null)
+        webView.stopLoading()
+        webView.destroy()
+    }
+
+    private fun applyForegroundState() {
+        if (isDisposed) return
+        val value = if (isForeground) "true" else "false"
+        webView.evaluateJavascript("window.__memeConchAudio?.setForeground($value)", null)
+    }
 }
 
-private class MagicConchClient(private val context: Context) : WebViewClient() {
+private class MagicConchClient(
+    private val context: Context,
+    private val onPageFinished: () -> Unit
+) : WebViewClient() {
     override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean =
         request.url.host != "conch.example"
 
@@ -338,6 +385,14 @@ private class MagicConchClient(private val context: Context) : WebViewClient() {
 
     @Suppress("DEPRECATION")
     override fun shouldInterceptRequest(view: WebView, url: String): WebResourceResponse? = localResponse(Uri.parse(url))
+
+    override fun onPageFinished(view: WebView, url: String) {
+        super.onPageFinished(view, url)
+        val uri = Uri.parse(url)
+        if (uri.scheme == "https" && uri.host == "conch.example") {
+            onPageFinished()
+        }
+    }
 
     private fun localResponse(uri: Uri): WebResourceResponse? {
         if (uri.scheme != "https" || uri.host != "conch.example") return forbidden()
