@@ -1,11 +1,16 @@
 package dev.memesearcher.meme_searcher
 
 import android.app.Activity
+import android.content.ActivityNotFoundException
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageInfo
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
+import android.provider.Settings
 import android.view.View
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -21,7 +26,9 @@ import io.flutter.plugin.platform.PlatformViewFactory
 import io.flutter.plugin.common.StandardMessageCodec
 import java.io.File
 import java.io.FileInputStream
+import java.security.MessageDigest
 import java.util.UUID
+import kotlin.concurrent.thread
 
 class MainActivity : FlutterActivity() {
     private val channelName = "dev.memesearcher.meme_searcher/media_actions"
@@ -39,6 +46,7 @@ class MainActivity : FlutterActivity() {
                 "share" -> share(call, result)
                 "save" -> save(call, result)
                 "getAppVersion" -> result.success(displayVersion())
+                "installUpdate" -> installUpdate(call, result)
                 else -> result.notImplemented()
             }
         }
@@ -101,6 +109,81 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    /**
+     * Hands a verified, app-private release APK to Android's package installer.
+     * The installer, rather than this app, remains responsible for the final
+     * user confirmation and signature/version enforcement.
+     */
+    private fun installUpdate(call: MethodCall, result: MethodChannel.Result) {
+        thread(name = "verify-update-apk") {
+            val apk = try {
+                verifiedUpdateApk(call)
+            } catch (error: IllegalArgumentException) {
+                result.error("invalid_update", error.message, null)
+                return@thread
+            } catch (error: Exception) {
+                result.error("invalid_update", "업데이트 APK를 확인하지 못했어요.", null)
+                return@thread
+            }
+            runOnUiThread { openUpdateInstaller(apk, result) }
+        }
+    }
+
+    private fun verifiedUpdateApk(call: MethodCall): File {
+        val requestedVersion = call.argument<String>("version")?.trim().orEmpty()
+        val expectedSha256 = call.argument<String>("sha256")?.trim().orEmpty().lowercase()
+        require(VERSION_PATTERN.matches(requestedVersion)) { "업데이트 버전이 올바르지 않아요." }
+        require(SHA256_PATTERN.matches(expectedSha256)) { "SHA-256 형식이 올바르지 않아요." }
+
+        val apk = validatedUpdateApk(call)
+        require(sha256(apk) == expectedSha256) { "APK SHA-256이 게시된 값과 달라요." }
+        val archive = packageInfoForArchive(apk)
+            ?: throw IllegalArgumentException("APK 패키지 정보를 읽을 수 없어요.")
+        require(archive.packageName == packageName) { "다른 앱의 APK는 설치할 수 없어요." }
+        require(archive.versionName == requestedVersion) { "APK 버전이 요청한 버전과 달라요." }
+        require(packageVersionCode(archive) > installedVersionCode()) { "더 새로운 APK만 설치할 수 있어요." }
+        require(archiveSignerMatchesInstalledApp(archive)) { "APK 서명이 현재 앱과 일치하지 않아요." }
+        return apk
+    }
+
+    private fun openUpdateInstaller(apk: File, result: MethodChannel.Result) {
+        if (isFinishing || isDestroyed) {
+            result.error("install_failed", "설치 화면을 열려면 앱을 다시 열어 주세요.", null)
+            return
+        }
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !packageManager.canRequestPackageInstalls()) {
+                val settingsIntent = Intent(
+                    Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                    Uri.parse("package:$packageName")
+                )
+                startActivity(settingsIntent)
+                result.success("permissionRequired")
+                return
+            }
+
+            val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", apk)
+            val installerIntent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, APK_MIME)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                clipData = ClipData.newRawUri(apk.name, uri)
+            }
+            val handler = packageManager.queryIntentActivities(
+                installerIntent, PackageManager.MATCH_DEFAULT_ONLY or PackageManager.MATCH_SYSTEM_ONLY
+            ).firstOrNull()?.activityInfo
+                ?: throw ActivityNotFoundException("No system APK installer")
+            installerIntent.setClassName(handler.packageName, handler.name)
+            startActivity(installerIntent)
+            result.success("installerOpened")
+        } catch (error: ActivityNotFoundException) {
+            result.error("no_handler", "Android 설치 화면을 찾을 수 없어요.", null)
+        } catch (error: SecurityException) {
+            result.error("installer_denied", "APK 설치 권한을 확인할 수 없어요.", null)
+        } catch (error: Exception) {
+            result.error("install_failed", "시스템 설치 화면을 열지 못했어요.", null)
+        }
+    }
+
     @Deprecated("Deprecated in Java")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
@@ -146,6 +229,62 @@ class MainActivity : FlutterActivity() {
         return file
     }
 
+    private fun validatedUpdateApk(call: MethodCall): File {
+        val rawPath = call.argument<String>("path")?.trim().orEmpty()
+        require(rawPath.isNotEmpty()) { "APK 경로가 비어 있어요." }
+        val apk = File(rawPath).canonicalFile
+        require(apk.isFile && apk.extension.equals("apk", ignoreCase = true)) { "APK 파일을 찾을 수 없어요." }
+        val updatesRoot = File(cacheDir, "app_updates").canonicalFile
+        require(apk.path.startsWith(updatesRoot.path + File.separator)) {
+            "앱 업데이트 캐시 밖의 APK는 설치할 수 없어요."
+        }
+        return apk
+    }
+
+    @Suppress("DEPRECATION")
+    private fun packageInfoForArchive(apk: File): PackageInfo? =
+        packageManager.getPackageArchiveInfo(apk.path, PackageManager.GET_SIGNING_CERTIFICATES)
+
+    @Suppress("DEPRECATION")
+    private fun installedVersionCode(): Long = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+        packageManager.getPackageInfo(packageName, 0).longVersionCode
+    } else {
+        packageManager.getPackageInfo(packageName, 0).versionCode.toLong()
+    }
+
+    @Suppress("DEPRECATION")
+    private fun packageVersionCode(info: PackageInfo): Long = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+        info.longVersionCode
+    } else {
+        info.versionCode.toLong()
+    }
+
+    /** On Android 9+ we can reject a clearly foreign archive before invoking the installer. */
+    private fun archiveSignerMatchesInstalledApp(archive: PackageInfo): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) return true
+        val signers = archive.signingInfo?.apkContentsSigners ?: return false
+        return signers.isNotEmpty() && signers.all { signer ->
+            packageManager.hasSigningCertificate(
+                packageName,
+                signer.toByteArray(),
+                PackageManager.CERT_INPUT_RAW_X509
+            )
+        }
+    }
+
+    private fun sha256(file: File): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        file.inputStream().buffered().use { input ->
+            val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                digest.update(buffer, 0, count)
+            }
+        }
+        return digest.digest().joinToString("") { byte -> "%02x".format(byte) }
+    }
+
     private fun safeName(value: String): String = value
         .replace(Regex("[^A-Za-z0-9._ -]"), "_")
         .trim().take(120).ifEmpty { "meme.bin" }
@@ -161,6 +300,12 @@ class MainActivity : FlutterActivity() {
 
     private data class StagedMedia(val name: String, val mime: String, val uri: Uri)
     private data class PendingSave(val source: File, val result: MethodChannel.Result)
+
+    private companion object {
+        const val APK_MIME = "application/vnd.android.package-archive"
+        val SHA256_PATTERN = Regex("^[a-f0-9]{64}$")
+        val VERSION_PATTERN = Regex("""^\d+\.\d+\.\d+\.\d+$""")
+    }
 }
 
 private class MagicConchViewFactory : PlatformViewFactory(StandardMessageCodec.INSTANCE) {

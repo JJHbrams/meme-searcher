@@ -2,12 +2,37 @@
 #include <flutter/flutter_view_controller.h>
 #include <windows.h>
 
+#include <charconv>
+
 #include "flutter_window.h"
 #include "graphics_compatibility.h"
 #include "utils.h"
 
 namespace {
 constexpr wchar_t kAppTitle[] = L"Meme Snatcher";
+
+bool WaitForPreviousProcess(std::vector<std::string>& arguments) {
+  if (arguments.empty() || arguments.front() != "--restart-after") return true;
+  if (arguments.size() != 2) return false;
+  const auto& argument = arguments[1];
+  DWORD pid = 0;
+  const auto parsed = std::from_chars(
+      argument.data(), argument.data() + argument.size(), pid);
+  if (parsed.ec != std::errc() || parsed.ptr != argument.data() + argument.size() ||
+      pid == 0 || pid == GetCurrentProcessId()) {
+    return false;
+  }
+  HANDLE previous = OpenProcess(SYNCHRONIZE, FALSE, pid);
+  if (previous) {
+    const DWORD wait = WaitForSingleObject(previous, 15000);
+    CloseHandle(previous);
+    if (wait != WAIT_OBJECT_0) return false;
+  } else if (GetLastError() != ERROR_INVALID_PARAMETER) {
+    return false;
+  }
+  arguments.clear();
+  return true;
+}
 
 bool StartOrActivate(FlutterWindow& window, bool software_adapter) {
   const auto create = [&window, software_adapter]() {
@@ -38,6 +63,9 @@ bool StartOrActivate(FlutterWindow& window, bool software_adapter) {
 
 int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
                       _In_ wchar_t *command_line, _In_ int show_command) {
+  auto command_line_arguments = GetCommandLineArguments();
+  if (!WaitForPreviousProcess(command_line_arguments)) return EXIT_FAILURE;
+
   // Attach to console when present (e.g., 'flutter run') or create a
   // new console when running with a debugger.
   if (!::AttachConsole(ATTACH_PARENT_PROCESS) && ::IsDebuggerPresent()) {
@@ -53,9 +81,6 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   if (software_adapter) {
     project.set_impeller_switch(flutter::ImpellerSwitch::Disabled);
   }
-
-  std::vector<std::string> command_line_arguments =
-      GetCommandLineArguments();
 
   project.set_dart_entrypoint_arguments(std::move(command_line_arguments));
 

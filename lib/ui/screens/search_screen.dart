@@ -10,10 +10,11 @@ import '../../core/models.dart';
 import '../../core/serpapi_account.dart';
 import '../../platform/media_actions.dart';
 import '../app_theme.dart';
-import 'magic_conch_screen.dart';
-import 'serpapi_settings_dialog.dart';
+import '../widgets/conch_nav_icon.dart';
 import '../widgets/source_badge.dart';
 import '../widgets/tag_chip.dart';
+import 'magic_conch_screen.dart';
+import 'serpapi_settings_dialog.dart';
 
 class SearchScreen extends StatefulWidget {
   const SearchScreen({
@@ -658,7 +659,7 @@ class _SearchScreenState extends State<SearchScreen> {
                 ),
                 NavigationDestination(
                   key: ValueKey('nav-conch'),
-                  icon: Icon(Icons.casino_outlined),
+                  icon: ConchNavIcon(),
                   label: '소라고동',
                 ),
               ],
@@ -1231,6 +1232,7 @@ class _Header extends StatelessWidget {
         ),
       if (compact)
         IconButton(
+          tooltip: '설정',
           onPressed: onSettings,
           icon: const Icon(Icons.settings_outlined),
         ),
@@ -1301,13 +1303,29 @@ class _SideRail extends StatelessWidget {
                   primary: false,
                   padding: EdgeInsets.zero,
                   children: [
-                    _railButton(Icons.home_outlined, '홈', _NavMode.home),
-                    _railButton(Icons.grid_view_rounded, '전체', _NavMode.all),
-                    _railButton(Icons.star_border, '즐겨찾기', _NavMode.favorites),
-                    _railButton(Icons.history, '최근', _NavMode.recent),
+                    _railButton(
+                      const Icon(Icons.home_outlined),
+                      '홈',
+                      _NavMode.home,
+                    ),
+                    _railButton(
+                      const Icon(Icons.grid_view_rounded),
+                      '전체',
+                      _NavMode.all,
+                    ),
+                    _railButton(
+                      const Icon(Icons.star_border),
+                      '즐겨찾기',
+                      _NavMode.favorites,
+                    ),
+                    _railButton(
+                      const Icon(Icons.history),
+                      '최근',
+                      _NavMode.recent,
+                    ),
                     const Divider(),
                     _railButton(
-                      Icons.casino_outlined,
+                      const ConchNavIcon(),
                       _NavMode.conch.label,
                       _NavMode.conch,
                     ),
@@ -1347,7 +1365,7 @@ class _SideRail extends StatelessWidget {
     ),
   );
 
-  Widget _railButton(IconData icon, String label, _NavMode value) => Padding(
+  Widget _railButton(Widget icon, String label, _NavMode value) => Padding(
     padding: const EdgeInsets.only(bottom: 2),
     child: FilledButton.tonalIcon(
       key: ValueKey('nav-${value.name}'),
@@ -1362,7 +1380,7 @@ class _SideRail extends StatelessWidget {
         visualDensity: VisualDensity.compact,
       ),
       onPressed: () => onChanged(value),
-      icon: Icon(icon),
+      icon: icon,
       label: Text(label),
     ),
   );

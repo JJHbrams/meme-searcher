@@ -50,6 +50,7 @@ void main() {
     expect(await check('1.10.0.1', 'v1.9.9.99'), isNull);
     expect(await check('1.4.0.28', 'v1.4.0.28'), isNull);
     expect((await check('1.9.9.99', 'v2.0.0.1'))?.tag, 'v2.0.0.1');
+    expect(compareAppVersions('1.4.0.10', '1.4.0.9'), isPositive);
   });
 
   test('in-app install requires the matching official ZIP digest', () async {
@@ -64,6 +65,84 @@ void main() {
     final legacy = await check('1.7.0.51', 'v1.8.0.52', digest: 'md5:$hash');
     expect(legacy?.hasZip, isTrue);
     expect(legacy?.canInstall, isFalse);
+  });
+
+  test('Android install requires the named APK and its SHA256SUMS entry', () async {
+    const tag = 'v1.8.0.52';
+    final hash = 'a' * 64;
+    final update = await checkForAndroidAppUpdate(
+      '1.7.0.51',
+      client: MockClient((request) async {
+        if (request.url.path.endsWith('/releases/latest')) {
+          return http.Response(
+            jsonEncode({
+              'tag_name': tag,
+              'draft': false,
+              'prerelease': false,
+              'assets': [
+                {'name': 'meme-searcher-$tag-android.apk', 'state': 'uploaded'},
+                {'name': 'SHA256SUMS.txt', 'state': 'uploaded'},
+              ],
+            }),
+            200,
+          );
+        }
+        expect(
+          request.url.toString(),
+          'https://github.com/JJHbrams/meme-searcher/releases/download/$tag/SHA256SUMS.txt',
+        );
+        return http.Response('$hash *meme-searcher-$tag-android.apk\n', 200);
+      }),
+    );
+    expect(update?.hasApk, isTrue);
+    expect(update?.apkSha256, hash);
+    expect(update?.canInstall, isTrue);
+
+    final fallback = await checkForAndroidAppUpdate(
+      '1.7.0.51',
+      client: MockClient(
+        (_) async => http.Response(
+          jsonEncode({
+            'tag_name': tag,
+            'draft': false,
+            'prerelease': false,
+            'assets': [
+              {'name': 'meme-searcher-$tag-android.apk', 'state': 'uploaded'},
+            ],
+          }),
+          200,
+        ),
+      ),
+    );
+    expect(fallback?.hasApk, isTrue);
+    expect(fallback?.canInstall, isFalse);
+
+    final inconsistent = await checkForAndroidAppUpdate(
+      '1.7.0.51',
+      client: MockClient((request) async {
+        if (request.url.path.endsWith('/releases/latest')) {
+          return http.Response(
+            jsonEncode({
+              'tag_name': tag,
+              'draft': false,
+              'prerelease': false,
+              'assets': [
+                {
+                  'name': 'meme-searcher-$tag-android.apk',
+                  'state': 'uploaded',
+                  'digest': 'sha256:${'b' * 64}',
+                },
+                {'name': 'SHA256SUMS.txt', 'state': 'uploaded'},
+              ],
+            }),
+            200,
+          );
+        }
+        return http.Response('$hash *meme-searcher-$tag-android.apk\n', 200);
+      }),
+    );
+    expect(inconsistent?.hasApk, isTrue);
+    expect(inconsistent?.canInstall, isFalse);
   });
 
   test(

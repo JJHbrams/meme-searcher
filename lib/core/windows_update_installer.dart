@@ -57,6 +57,21 @@ final _reservedDevice = RegExp(
 final _stageName = RegExp(r'^\.meme-update-[a-zA-Z0-9]+$');
 bool _installing = false;
 
+const _updateChannel = MethodChannel(MediaActions.channelName);
+
+Future<String?> readInstalledWindowsAppVersion() =>
+    _updateChannel.invokeMethod<String>('getInstalledAppVersion');
+
+Future<void> restartInstalledWindowsApp() async {
+  try {
+    await _updateChannel.invokeMethod<void>('restartInstalledApp');
+  } on PlatformException {
+    throw const AppUpdateException(
+      '앱을 다시 시작하지 못했어요. 트레이에서 앱을 종료한 뒤 다시 열어 주세요.',
+    );
+  }
+}
+
 Future<void> cleanCompletedWindowsUpdates() async {
   if (!Platform.isWindows) return;
   final executable = File(Platform.resolvedExecutable);
@@ -142,15 +157,19 @@ Future<void> installAppUpdate(
     final failure = File(p.join(stage.path, 'error.txt'));
     final timeout = Stopwatch()..start();
     while (!await ready.exists()) {
-      if (await failure.exists() ||
-          timeout.elapsed >= const Duration(seconds: 12)) {
+      if (await failure.exists()) {
+        final reason = await failure.length() <= 4096
+            ? (await failure.readAsString()).trim()
+            : '';
+        if (reason.isNotEmpty) throw AppUpdateException(reason);
+      }
+      if (timeout.elapsed >= const Duration(seconds: 12)) {
         throw const AppUpdateException('업데이트를 시작하지 못했어요. 앱을 다시 열고 시도해 주세요.');
       }
       await Future<void>.delayed(const Duration(milliseconds: 100));
     }
     onProgress(const UpdateProgress(UpdatePhase.restart));
-    await const MethodChannel(MediaActions.channelName)
-        .invokeMethod<void>('quitForUpdate');
+    await _updateChannel.invokeMethod<void>('quitForUpdate');
     handedOff = true;
   } on AppUpdateException {
     rethrow;

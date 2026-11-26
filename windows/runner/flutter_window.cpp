@@ -3,11 +3,13 @@
 #include <shobjidl.h>
 #include <shlguid.h>
 #include <shellapi.h>
+#include <winver.h>
 #include <wincodec.h>
 
 #include <flutter/standard_method_codec.h>
 
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
@@ -24,6 +26,71 @@ namespace {
 constexpr char kMediaActionsChannel[] =
     "dev.memesearcher.meme_searcher/media_actions";
 constexpr UINT kQuitForUpdate = WM_APP + 0x4d;
+
+using WindowsVersion = std::array<DWORD, 4>;
+constexpr WindowsVersion kRunningVersion = {VERSION_AS_NUMBER};
+
+std::filesystem::path ApplicationPath() {
+  std::wstring path(32768, L'\0');
+  const DWORD size = GetModuleFileNameW(
+      nullptr, path.data(), static_cast<DWORD>(path.size()));
+  if (size == 0 || size >= path.size()) return {};
+  path.resize(size);
+  return path;
+}
+
+std::optional<WindowsVersion> ReadInstalledVersion(
+    const std::filesystem::path& executable) {
+  const DWORD attributes = GetFileAttributesW(executable.c_str());
+  if (attributes == INVALID_FILE_ATTRIBUTES ||
+      (attributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT))) {
+    return std::nullopt;
+  }
+  DWORD ignored = 0;
+  const DWORD size = GetFileVersionInfoSizeW(executable.c_str(), &ignored);
+  if (size == 0) return std::nullopt;
+  std::vector<BYTE> data(size);
+  if (!GetFileVersionInfoW(executable.c_str(), 0, size, data.data())) {
+    return std::nullopt;
+  }
+  VS_FIXEDFILEINFO* version = nullptr;
+  UINT bytes = 0;
+  if (!VerQueryValueW(data.data(), L"\\", reinterpret_cast<void**>(&version),
+                      &bytes) ||
+      !version || bytes < sizeof(*version) ||
+      version->dwSignature != 0xfeef04bd) {
+    return std::nullopt;
+  }
+  return WindowsVersion{
+      HIWORD(version->dwFileVersionMS), LOWORD(version->dwFileVersionMS),
+      HIWORD(version->dwFileVersionLS), LOWORD(version->dwFileVersionLS)};
+}
+
+std::string VersionString(const WindowsVersion& version) {
+  return std::to_string(version[0]) + "." + std::to_string(version[1]) + "." +
+         std::to_string(version[2]) + "." + std::to_string(version[3]);
+}
+
+bool RestartInstalledApp(HWND window) {
+  if (!window) return false;
+  const auto executable = ApplicationPath();
+  const auto version = ReadInstalledVersion(executable);
+  if (!version || *version <= kRunningVersion) return false;
+
+  std::wstring command = L"\"" + executable.wstring() +
+                         L"\" --restart-after " +
+                         std::to_wstring(GetCurrentProcessId());
+  const auto directory = executable.parent_path();
+  STARTUPINFOW startup = {sizeof(startup)};
+  PROCESS_INFORMATION process = {};
+  if (!CreateProcessW(executable.c_str(), command.data(), nullptr, nullptr, FALSE,
+                      0, nullptr, directory.c_str(), &startup, &process)) {
+    return false;
+  }
+  CloseHandle(process.hThread);
+  CloseHandle(process.hProcess);
+  return PostMessageW(window, kQuitForUpdate, 0, 0) != FALSE;
+}
 
 constexpr wchar_t kPngClipboardFormat[] = L"PNG";
 constexpr wchar_t kPreferredDropEffectFormat[] = L"Preferred DropEffect";
@@ -475,6 +542,23 @@ bool FlutterWindow::OnCreate() {
       [this](const auto& call, auto result) {
         if (call.method_name() == "getAppVersion") {
           result->Success(flutter::EncodableValue(std::string(VERSION_AS_STRING)));
+          return;
+        }
+        if (call.method_name() == "getInstalledAppVersion") {
+          const auto version = ReadInstalledVersion(ApplicationPath());
+          if (version) {
+            result->Success(flutter::EncodableValue(VersionString(*version)));
+          } else {
+            result->Success();
+          }
+          return;
+        }
+        if (call.method_name() == "restartInstalledApp") {
+          if (RestartInstalledApp(GetHandle())) {
+            result->Success();
+          } else {
+            result->Error("restart_failed", "Could not restart the installed app.");
+          }
           return;
         }
         if (call.method_name() == "quitForUpdate") {

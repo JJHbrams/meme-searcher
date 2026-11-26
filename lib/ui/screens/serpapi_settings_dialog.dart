@@ -5,8 +5,10 @@ import 'package:material_ui/material_ui.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/app_services.dart';
+import '../../core/app_update.dart';
 import '../../core/models.dart';
 import '../../core/serpapi_account.dart';
+import '../../core/windows_update_installer.dart';
 import '../widgets/app_version_footer.dart';
 
 class SerpApiSettingsDialog extends StatefulWidget {
@@ -179,7 +181,15 @@ class _SerpApiSettingsDialogState extends State<SerpApiSettingsDialog> {
                 ),
               ),
             AppVersionFooter(
-              showUpdateCheck: Platform.isWindows && !widget.firstRun,
+              showUpdateCheck:
+                  (Platform.isWindows || Platform.isAndroid) &&
+                  !widget.firstRun,
+              check: Platform.isAndroid
+                  ? checkForAndroidAppUpdate
+                  : checkForAppUpdate,
+              readInstalledVersion: Platform.isWindows
+                  ? readInstalledWindowsAppVersion
+                  : null,
               enabled: !_busy,
               onInstallingChanged: (updating) =>
                   setState(() => _updating = updating),
