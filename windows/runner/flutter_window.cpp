@@ -23,6 +23,7 @@ namespace {
 
 constexpr char kMediaActionsChannel[] =
     "dev.memesearcher.meme_searcher/media_actions";
+constexpr UINT kQuitForUpdate = WM_APP + 0x4d;
 
 constexpr wchar_t kPngClipboardFormat[] = L"PNG";
 constexpr wchar_t kPreferredDropEffectFormat[] = L"Preferred DropEffect";
@@ -476,6 +477,18 @@ bool FlutterWindow::OnCreate() {
           result->Success(flutter::EncodableValue(std::string(VERSION_AS_STRING)));
           return;
         }
+        if (call.method_name() == "quitForUpdate") {
+          // The updater has already written its ready marker. A normal close
+          // would be consumed by the close-to-tray handler, so acknowledge the
+          // request first, remove the tray icon, and destroy this window.
+          // Returning before Destroy keeps the Dart Future deterministic.
+          if (!GetHandle() || !PostMessageW(GetHandle(), kQuitForUpdate, 0, 0)) {
+            result->Error("quit_failed", "Could not schedule shutdown for update.");
+            return;
+          }
+          result->Success();
+          return;
+        }
         const HWND owner = flutter_controller_ && flutter_controller_->view()
                                ? flutter_controller_->view()->GetNativeWindow()
                                : nullptr;
@@ -565,6 +578,12 @@ LRESULT
 FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
                               WPARAM const wparam,
                               LPARAM const lparam) noexcept {
+  if (message == kQuitForUpdate) {
+    tray_icon_.Remove(hwnd);
+    SetQuitOnClose(true);
+    Destroy();
+    return 0;
+  }
   if (!headless_test_ && tray_icon_.HandleMessage(hwnd, message, wparam, lparam)) {
     return 0;
   }
