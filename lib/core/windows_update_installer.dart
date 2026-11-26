@@ -28,6 +28,7 @@ class AppUpdateException implements Exception {
 const _runner = 'meme_searcher.exe';
 const _updater = 'meme_updater.exe';
 const _completedStageFiles = [_updater, 'ready', 'done'];
+const _nativeAssetsManifest = 'native_assets.json';
 const _rootFiles = {
   _runner,
   _updater,
@@ -287,6 +288,7 @@ void _extractRuntime(String zipPath, String payloadPath) {
         continue;
       }
       if (!_requiredFiles.contains(path) &&
+          path != _nativeAssetsManifest &&
           !path.startsWith('data/flutter_assets/') &&
           !path.startsWith('data/licenses/webview2/')) {
         throw const FormatException('Unexpected Windows runtime file.');

@@ -14,6 +14,7 @@ namespace fs = std::filesystem;
 namespace {
 constexpr wchar_t kApp[] = L"meme_searcher.exe";
 constexpr wchar_t kUpdater[] = L"meme_updater.exe";
+constexpr wchar_t kNativeAssetsManifest[] = L"native_assets.json";
 
 const std::vector<fs::path> kRuntimeFiles = {
     kApp, kUpdater, L"flutter_windows.dll",
@@ -59,6 +60,7 @@ bool IsCancelled(const fs::path& stage) { return fs::exists(stage / L"cancelled"
 
 bool IsAllowedPayloadFile(const fs::path& relative) {
   const auto normal = Lower(relative.generic_wstring());
+  if (normal == kNativeAssetsManifest) return true;
   for (const auto& allowed : kRuntimeFiles) {
     if (normal == Lower(allowed.generic_wstring())) return true;
   }
@@ -205,8 +207,15 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
     WriteError(stage, L"기존 데이터 폴더가 안전하지 않습니다.");
     CloseHandle(parent); return 6;
   }
-  const fs::path backup = stage / L"backup";
+  const fs::path payload = stage / L"payload";
   std::error_code ec;
+  const bool has_native_assets = fs::exists(payload / kNativeAssetsManifest, ec);
+  if (ec) {
+    WriteError(stage, L"업데이트의 네이티브 에셋 정보를 확인할 수 없습니다.");
+    CloseHandle(parent);
+    return 8;
+  }
+  const fs::path backup = stage / L"backup";
   if (!fs::create_directory(backup, ec) || ec) {
     WriteError(stage, L"업데이트 백업 폴더를 만들 수 없습니다.");
     CloseHandle(parent);
@@ -228,8 +237,8 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
   CloseHandle(parent);
   if (IsCancelled(stage)) return 0;
 
-  const fs::path payload = stage / L"payload";
   std::vector<fs::path> owned = kRuntimeFiles;
+  if (has_native_assets) owned.emplace_back(kNativeAssetsManifest);
   owned.push_back(L"data/flutter_assets");
   owned.push_back(L"data/licenses/webview2");
   std::vector<fs::path> backed_up;
