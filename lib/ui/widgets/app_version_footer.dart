@@ -3,17 +3,25 @@ import 'package:material_ui/material_ui.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/app_update.dart';
+import '../../core/windows_update_installer.dart';
 import '../../platform/media_actions.dart';
+
+typedef AppUpdateInstaller = Future<void> Function(
+  WindowsRelease release, {
+  required void Function(UpdateProgress) onProgress,
+});
 
 class AppVersionFooter extends StatefulWidget {
   const AppVersionFooter({
     required this.showUpdateCheck,
     this.check = checkForAppUpdate,
+    this.install = installAppUpdate,
     super.key,
   });
 
   final bool showUpdateCheck;
   final Future<WindowsRelease?> Function(String) check;
+  final AppUpdateInstaller install;
 
   @override
   State<AppVersionFooter> createState() => _AppVersionFooterState();
@@ -23,8 +31,10 @@ class _AppVersionFooterState extends State<AppVersionFooter> {
   late final _version = const MethodChannel(MediaActions.channelName)
       .invokeMethod<String>('getAppVersion');
   bool _checking = false;
+  bool _installing = false;
   WindowsRelease? _release;
   String? _message;
+  UpdateProgress? _progress;
 
   Future<void> _check(String installed) async {
     if (_checking) return;
@@ -32,6 +42,7 @@ class _AppVersionFooterState extends State<AppVersionFooter> {
       _checking = true;
       _release = null;
       _message = null;
+      _progress = null;
     });
     WindowsRelease? release;
     String message;
@@ -53,13 +64,75 @@ class _AppVersionFooterState extends State<AppVersionFooter> {
 
   Future<void> _openRelease(WindowsRelease release) async {
     try {
-      if (await launchUrl(release.url, mode: LaunchMode.externalApplication)) {
+      if (await launchUrl(
+        release.releasePage,
+        mode: LaunchMode.externalApplication,
+      )) {
         return;
       }
     } catch (_) {
       // Keep the URL available to copy if the browser cannot be opened.
     }
-    if (mounted) setState(() => _message = '브라우저에서 ${release.url} 를 열어 주세요.');
+    if (mounted) {
+      setState(() => _message = '브라우저에서 ${release.releasePage} 를 열어 주세요.');
+    }
+  }
+
+  String _progressText(UpdateProgress progress) {
+    final phase = switch (progress.phase) {
+      UpdatePhase.download => '업데이트를 다운로드하는 중이에요.',
+      UpdatePhase.verify => '다운로드한 파일을 확인하는 중이에요.',
+      UpdatePhase.prepare => '업데이트를 준비하는 중이에요.',
+      UpdatePhase.restart => '업데이트를 적용하고 앱을 다시 시작해요.',
+    };
+    final fraction = progress.fraction;
+    if (fraction == null) return phase;
+    return '$phase ${(fraction * 100).round()}%';
+  }
+
+  void _onInstallProgress(UpdateProgress progress) {
+    final previous = _progress;
+    if (previous?.phase == progress.phase &&
+        previous?.fraction == progress.fraction) {
+      return;
+    }
+    if (mounted) setState(() => _progress = progress);
+  }
+
+  Future<void> _installRelease(WindowsRelease release) async {
+    if (_installing) return;
+    setState(() {
+      _installing = true;
+      _message = null;
+      _progress = const UpdateProgress(UpdatePhase.download);
+    });
+    try {
+      await widget.install(release, onProgress: _onInstallProgress);
+      if (mounted) {
+        setState(() {
+          // The production installer normally exits the app immediately after
+          // handoff. Keep this state blocked during graceful Windows shutdown.
+          _progress = const UpdateProgress(UpdatePhase.restart);
+          _message = null;
+        });
+      }
+    } on AppUpdateException catch (error) {
+      if (mounted) {
+        setState(() {
+          _installing = false;
+          _progress = null;
+          _message = error.message;
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _installing = false;
+          _progress = null;
+          _message = '업데이트를 설치하지 못했어요. 다시 시도해 주세요.';
+        });
+      }
+    }
   }
 
   @override
@@ -102,12 +175,39 @@ class _AppVersionFooterState extends State<AppVersionFooter> {
             if (_message != null)
               Semantics(liveRegion: true, child: SelectableText(_message!)),
             if (release != null)
-              TextButton.icon(
-                onPressed: () => _openRelease(release),
-                icon: Icon(
-                  release.hasZip ? Icons.download_outlined : Icons.open_in_new,
+              if (release.canInstall)
+                TextButton.icon(
+                  onPressed: _installing
+                      ? null
+                      : () => _installRelease(release),
+                  icon: const Icon(Icons.system_update_alt),
+                  label: Text(_installing ? '업데이트 적용 중…' : '업데이트 설치'),
+                )
+              else
+                TextButton.icon(
+                  onPressed: () => _openRelease(release),
+                  icon: const Icon(Icons.open_in_new),
+                  label: const Text('릴리즈 페이지 열기'),
                 ),
-                label: Text(release.hasZip ? 'Windows ZIP 다운로드' : '릴리즈 페이지 열기'),
+            if (_progress != null)
+              Semantics(
+                liveRegion: true,
+                label: _progressText(_progress!),
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      ExcludeSemantics(child: Text(_progressText(_progress!))),
+                      const SizedBox(height: 4),
+                      ExcludeSemantics(
+                        child: LinearProgressIndicator(
+                          value: _progress!.fraction,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
           ],
         ),
