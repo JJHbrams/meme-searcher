@@ -579,7 +579,7 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
                               WPARAM const wparam,
                               LPARAM const lparam) noexcept {
   if (message == kQuitForUpdate) {
-    tray_icon_.Remove(hwnd);
+    // WM_DESTROY removes the tray icon through its usual message handler.
     SetQuitOnClose(true);
     Destroy();
     return 0;

@@ -124,30 +124,11 @@ bool NewerVersion(const fs::path& candidate, const fs::path& running) {
   return a > b;
 }
 
-bool CopyFileReplacing(const fs::path& source, const fs::path& target) {
+bool MoveEntry(const fs::path& source, const fs::path& target) {
   std::error_code ec;
   fs::create_directories(target.parent_path(), ec);
-  return !ec && CopyFileW(source.c_str(), target.c_str(), FALSE) != FALSE;
-}
-
-void RemoveOwnedTree(const fs::path& root, const fs::path& relative) {
-  std::error_code ec;
-  fs::remove_all(root / relative, ec);
-}
-
-bool CopyTree(const fs::path& source, const fs::path& target) {
-  std::error_code ec;
-  fs::create_directories(target, ec);
-  if (ec) return false;
-  for (fs::recursive_directory_iterator it(source, fs::directory_options::skip_permission_denied, ec), end;
-       !ec && it != end; it.increment(ec)) {
-    const fs::path relative = fs::relative(it->path(), source, ec);
-    if (ec) break;
-    if (it->is_directory(ec)) fs::create_directories(target / relative, ec);
-    else if (it->is_regular_file(ec) && !CopyFileReplacing(it->path(), target / relative)) return false;
-    if (ec) break;
-  }
-  return !ec;
+  return !ec &&
+         MoveFileExW(source.c_str(), target.c_str(), MOVEFILE_WRITE_THROUGH);
 }
 
 bool Start(const fs::path& exe, PROCESS_INFORMATION* process) {
@@ -159,6 +140,27 @@ bool Start(const fs::path& exe, PROCESS_INFORMATION* process) {
   if (started && process) *process = created;
   else if (started) { CloseHandle(created.hThread); CloseHandle(created.hProcess); }
   return started;
+}
+
+void ReportFailure(const fs::path& stage, const std::wstring& message) {
+  WriteError(stage, message);
+  wchar_t headless[2] = {};
+  if (GetEnvironmentVariableW(L"MEME_SEARCHER_HEADLESS_TEST", headless, 2) == 1 &&
+      headless[0] == L'1') return;
+  MessageBoxW(nullptr, message.c_str(), L"Meme Snatcher", MB_OK | MB_ICONWARNING);
+}
+
+bool Restore(const fs::path& install, const fs::path& payload,
+             const fs::path& backup, const std::vector<fs::path>& installed,
+             const std::vector<fs::path>& backed_up) {
+  bool restored = true;
+  for (auto it = installed.rbegin(); it != installed.rend(); ++it) {
+    if (!MoveEntry(install / *it, payload / *it)) restored = false;
+  }
+  for (auto it = backed_up.rbegin(); it != backed_up.rend(); ++it) {
+    if (!MoveEntry(backup / *it, install / *it)) restored = false;
+  }
+  return restored;
 }
 
 }  // namespace
@@ -203,7 +205,20 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
     WriteError(stage, L"기존 데이터 폴더가 안전하지 않습니다.");
     CloseHandle(parent); return 6;
   }
-  { std::ofstream(stage / L"ready", std::ios::binary | std::ios::trunc) << "ready\n"; }
+  const fs::path backup = stage / L"backup";
+  std::error_code ec;
+  if (!fs::create_directory(backup, ec) || ec) {
+    WriteError(stage, L"업데이트 백업 폴더를 만들 수 없습니다.");
+    CloseHandle(parent);
+    return 8;
+  }
+  {
+    std::ofstream marker(stage / L"ready", std::ios::binary | std::ios::trunc);
+    if (!(marker << "ready\n" << std::flush)) {
+      CloseHandle(parent);
+      return 8;
+    }
+  }
   for (;;) {
     const DWORD result = WaitForSingleObject(parent, 250);
     if (IsCancelled(stage)) { CloseHandle(parent); return 0; }
@@ -214,112 +229,62 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
   if (IsCancelled(stage)) return 0;
 
   const fs::path payload = stage / L"payload";
-  std::error_code ec;
-  const fs::path backup = stage / L"backup";
-  if (fs::exists(backup, ec) || ec || !fs::create_directory(backup, ec) || ec) {
-    WriteError(stage, L"업데이트 백업 폴더를 만들 수 없습니다."); return 8;
-  }
   std::vector<fs::path> owned = kRuntimeFiles;
   owned.push_back(L"data/flutter_assets");
   owned.push_back(L"data/licenses/webview2");
-  std::vector<fs::path> moved;
-  std::vector<fs::path> copied_files;
-  bool copied_assets = false;
-  bool copied_licenses = false;
+  std::vector<fs::path> backed_up;
+  std::vector<fs::path> installed;
   bool applied = true;
   for (const auto& relative : owned) {
     const fs::path destination = install / relative;
     if (fs::exists(destination, ec)) {
-      if (IsReparsePoint(destination)) { applied = false; break; }
-      fs::create_directories((backup / relative).parent_path(), ec);
-      if (ec || !MoveFileExW(destination.c_str(), (backup / relative).c_str(), MOVEFILE_WRITE_THROUGH)) { applied = false; break; }
-      moved.push_back(relative);
+      if (IsReparsePoint(destination) ||
+          !MoveEntry(destination, backup / relative)) {
+        applied = false;
+        break;
+      }
+      backed_up.push_back(relative);
     }
-    if (ec) { applied = false; break; }
+    if (ec) {
+      applied = false;
+      break;
+    }
   }
   if (applied) {
-    // Install the launcher last. Until its dependencies are in place, a user
-    // clicking the old launcher sees it absent rather than a half-updated app.
-    for (const auto& relative : kRuntimeFiles) {
-      if (relative == fs::path(kApp)) continue;
-      copied_files.push_back(relative);
-      if (!CopyFileReplacing(payload / relative, install / relative)) { applied = false; break; }
+    // The runner heads the backup order and comes last in the install order.
+    std::rotate(owned.begin(), owned.begin() + 1, owned.end());
+    for (const auto& relative : owned) {
+      if (!MoveEntry(payload / relative, install / relative)) {
+        applied = false;
+        break;
+      }
+      installed.push_back(relative);
     }
-    if (applied) { copied_assets = true; applied = CopyTree(payload / L"data/flutter_assets", install / L"data/flutter_assets"); }
-    if (applied) { copied_licenses = true; applied = CopyTree(payload / L"data/licenses/webview2", install / L"data/licenses/webview2"); }
-    if (applied) { copied_files.push_back(kApp); if (!CopyFileReplacing(payload / kApp, install / kApp)) applied = false; }
   }
-  if (!applied) {
-    // Never touch an entry that was not moved or copied by this transaction.
-    for (const auto& relative : copied_files) RemoveOwnedTree(install, relative);
-    if (copied_assets) RemoveOwnedTree(install, L"data/flutter_assets");
-    if (copied_licenses) RemoveOwnedTree(install, L"data/licenses/webview2");
-    bool restored = true;
-    for (auto it = moved.rbegin(); it != moved.rend(); ++it) {
-      fs::create_directories((install / *it).parent_path(), ec);
-      if (ec || !MoveFileExW((backup / *it).c_str(), (install / *it).c_str(), MOVEFILE_WRITE_THROUGH)) restored = false;
+
+  PROCESS_INFORMATION updated = {};
+  if (applied && Start(install / kApp, &updated)) {
+    CloseHandle(updated.hThread);
+    const DWORD started = WaitForSingleObject(updated.hProcess, 5000);
+    CloseHandle(updated.hProcess);
+    if (started == WAIT_TIMEOUT) {
+      fs::remove_all(backup, ec);
+      if (!ec) fs::remove_all(payload, ec);
+      if (!ec) std::ofstream(stage / L"done", std::ios::binary) << "done\n";
+      return 0;
     }
-    if (!restored) {
-      WriteError(stage, L"업데이트 적용에 실패했고 이전 버전 복원도 완료되지 않았습니다. 지원팀에 error.txt를 보내주세요.");
-      return 9;
-    }
-    fs::remove_all(backup, ec);
-    PROCESS_INFORMATION restored_process = {};
-    Start(install / kApp, &restored_process);
-    if (restored_process.hThread) CloseHandle(restored_process.hThread);
-    if (restored_process.hProcess) CloseHandle(restored_process.hProcess);
-    WriteError(stage, L"업데이트 적용에 실패해 이전 버전으로 복원했습니다.");
-    fs::remove_all(payload, ec);
+  }
+
+  if (!Restore(install, payload, backup, installed, backed_up)) {
+    ReportFailure(stage, L"이전 버전 복원이 완료되지 않았어요. 백업 위치\n" +
+                         backup.wstring());
     return 9;
   }
-  PROCESS_INFORMATION updated = {};
-  if (!Start(install / kApp, &updated)) {
-    for (const auto& relative : copied_files) RemoveOwnedTree(install, relative);
-    if (copied_assets) RemoveOwnedTree(install, L"data/flutter_assets");
-    if (copied_licenses) RemoveOwnedTree(install, L"data/licenses/webview2");
-    bool restored = true;
-    for (auto it = moved.rbegin(); it != moved.rend(); ++it) {
-      fs::create_directories((install / *it).parent_path(), ec);
-      if (ec || !MoveFileExW((backup / *it).c_str(), (install / *it).c_str(), MOVEFILE_WRITE_THROUGH)) restored = false;
-    }
-    if (!restored) { WriteError(stage, L"앱을 다시 시작하지 못했고 이전 버전 복원도 완료되지 않았습니다."); return 10; }
-    fs::remove_all(backup, ec);
-    PROCESS_INFORMATION restored_process = {};
-    Start(install / kApp, &restored_process);
-    if (restored_process.hThread) CloseHandle(restored_process.hThread);
-    if (restored_process.hProcess) CloseHandle(restored_process.hProcess);
-    WriteError(stage, L"업데이트된 앱을 시작하지 못해 이전 버전으로 복원했습니다.");
-    fs::remove_all(payload, ec);
-    return 10;
-  }
-  CloseHandle(updated.hThread);
-  // A process that exits immediately is an update failure; restore only files
-  // this transaction moved, and retain the backup if restoration is incomplete.
-  if (WaitForSingleObject(updated.hProcess, 5000) == WAIT_OBJECT_0) {
-    CloseHandle(updated.hProcess);
-    for (const auto& relative : copied_files) RemoveOwnedTree(install, relative);
-    if (copied_assets) RemoveOwnedTree(install, L"data/flutter_assets");
-    if (copied_licenses) RemoveOwnedTree(install, L"data/licenses/webview2");
-    bool restored = true;
-    for (auto it = moved.rbegin(); it != moved.rend(); ++it) {
-      fs::create_directories((install / *it).parent_path(), ec);
-      if (ec || !MoveFileExW((backup / *it).c_str(), (install / *it).c_str(), MOVEFILE_WRITE_THROUGH)) restored = false;
-    }
-    if (!restored) { WriteError(stage, L"새 버전이 시작되지 않았고 이전 버전 복원도 완료되지 않았습니다."); return 11; }
-    fs::remove_all(backup, ec);
-    PROCESS_INFORMATION restored_process = {};
-    Start(install / kApp, &restored_process);
-    if (restored_process.hThread) CloseHandle(restored_process.hThread);
-    if (restored_process.hProcess) CloseHandle(restored_process.hProcess);
-    WriteError(stage, L"새 버전이 시작되지 않아 이전 버전으로 복원했습니다.");
-    fs::remove_all(payload, ec);
-    return 11;
-  }
-  CloseHandle(updated.hProcess);
   fs::remove_all(backup, ec);
   fs::remove_all(payload, ec);
-  std::ofstream(stage / L"done", std::ios::binary | std::ios::trunc) << "done\n";
-  // Leave only our staged executable plus ready/done. It cannot delete itself;
-  // Dart may delete exactly those known names on the next app start.
-  return 0;
+  const bool reopened = Start(install / kApp, nullptr);
+  ReportFailure(stage, reopened
+      ? L"업데이트에 실패해 이전 버전을 복원하고 다시 열었어요."
+      : L"업데이트에 실패해 이전 버전을 복원했어요. 앱을 다시 열어 주세요.");
+  return 10;
 }
