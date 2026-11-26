@@ -66,6 +66,10 @@ void main() {
       ]);
       expect(await File(p.join(payload, 'meme_updater.exe')).exists(), isTrue);
       expect(await Directory(p.join(payload, 'docs')).exists(), isFalse);
+      expect(
+        await File(p.join(payload, 'RELEASE-BUILD.json')).exists(),
+        isFalse,
+      );
     },
   );
 
@@ -118,6 +122,7 @@ List<int> bundle({String? extra, bool includeUpdater = true}) {
     'data/flutter_assets/AssetManifest.bin',
     'data/licenses/webview2/LICENSE.txt',
     'data/licenses/webview2/NOTICE.txt',
+    'RELEASE-BUILD.json',
     ?extra,
   ]) {
     archive.addFile(ArchiveFile(name, example.length, example));

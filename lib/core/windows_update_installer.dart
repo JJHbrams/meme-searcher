@@ -282,6 +282,7 @@ void _extractRuntime(String zipPath, String payloadPath) {
       if (entry.isDirectory ||
           path.startsWith('docs/') ||
           path == 'README.md' ||
+          path == 'RELEASE-BUILD.json' ||
           path == 'THIRD_PARTY_NOTICES.md') {
         continue;
       }
