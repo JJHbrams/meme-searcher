@@ -27,6 +27,7 @@ class AppUpdateException implements Exception {
 
 const _runner = 'meme_searcher.exe';
 const _updater = 'meme_updater.exe';
+const _completedStageFiles = [_updater, 'ready', 'done'];
 const _rootFiles = {
   _runner,
   _updater,
@@ -52,7 +53,50 @@ final _reservedDevice = RegExp(
   r'^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\.|$)',
   caseSensitive: false,
 );
+final _stageName = RegExp(r'^\.meme-update-[a-zA-Z0-9]+$');
 bool _installing = false;
+
+Future<void> cleanCompletedWindowsUpdates() async {
+  if (!Platform.isWindows) return;
+  final executable = File(Platform.resolvedExecutable);
+  if (p.basename(executable.path).toLowerCase() != _runner) return;
+  // The native helper confirms startup and exits a few seconds after relaunch.
+  await Future<void>.delayed(const Duration(seconds: 8));
+  try {
+    await for (final stage in executable.parent.list(followLinks: false)) {
+      if (stage is! Directory || !_stageName.hasMatch(p.basename(stage.path))) {
+        continue;
+      }
+      final done = p.join(stage.path, 'done');
+      if (await FileSystemEntity.type(done, followLinks: false) !=
+          FileSystemEntityType.file) {
+        continue;
+      }
+      try {
+        final files = await stage.list(followLinks: false).toList();
+        if (files.any(
+          (file) =>
+              file is! File ||
+              !_completedStageFiles.contains(p.basename(file.path)),
+        )) {
+          continue;
+        }
+        for (final name in _completedStageFiles) {
+          final path = p.join(stage.path, name);
+          if (await FileSystemEntity.type(path, followLinks: false) ==
+              FileSystemEntityType.file) {
+            await File(path).delete();
+          }
+        }
+        await stage.delete();
+      } on FileSystemException {
+        // Leave a still-running helper or a nonempty stage for another run.
+      }
+    }
+  } on FileSystemException {
+    // Running from a read-only folder does not affect normal app startup.
+  }
+}
 
 Future<void> installAppUpdate(
   WindowsRelease release, {
