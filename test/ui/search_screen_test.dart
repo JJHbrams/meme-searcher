@@ -276,6 +276,77 @@ void main() {
     }
   });
 
+  for (final width in [1440.0, 390.0]) {
+    testWidgets('media chips filter the submitted search at width $width', (
+      tester,
+    ) async {
+      final services = _FakeServices();
+      services.searchAssets = [services.asset, services.webAsset];
+      await openApp(tester, services, size: Size(width, 900));
+      final scrollable = find
+          .descendant(
+            of: find.byType(CustomScrollView),
+            matching: find.byType(Scrollable),
+          )
+          .first;
+      final gifResult = find.text('Approved meme');
+      final stillResult = find.text('Web search result');
+
+      Future<void> reveal(Finder target, double delta) async {
+        await tester.scrollUntilVisible(target, delta, scrollable: scrollable);
+        await tester.pumpAndSettle();
+      }
+
+      await tester.tap(find.byTooltip('검색 옵션 열기'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(ChoiceChip, 'GIF'));
+      await tester.pumpAndSettle();
+      expect(services.searches, 0);
+      await searchFromHome(tester, 'submitted #tag');
+      expect(find.text('1개 밈'), findsOneWidget);
+      await tester.enterText(
+        find.byWidgetPredicate(
+          (widget) =>
+              widget is TextField && widget.controller?.text == 'submitted',
+        ),
+        'unsubmitted draft',
+      );
+      await reveal(gifResult, 120);
+      expect(gifResult, findsOneWidget);
+      expect(stillResult, findsNothing);
+
+      final imageFilter = find.widgetWithText(ChoiceChip, '이미지');
+      await reveal(imageFilter, -120);
+      await tester.tap(imageFilter);
+      await tester.pumpAndSettle();
+      expect(find.text('1개 밈'), findsOneWidget);
+      await reveal(stillResult, 120);
+      expect(gifResult, findsNothing);
+      expect(stillResult, findsOneWidget);
+
+      final allFilter = find.widgetWithText(ChoiceChip, '전체');
+      await reveal(allFilter, -120);
+      await tester.tap(allFilter);
+      await tester.pumpAndSettle();
+      expect(find.text('2개 밈'), findsOneWidget);
+      expect(find.text('unsubmitted draft'), findsOneWidget);
+      await reveal(gifResult, 120);
+      expect(gifResult, findsOneWidget);
+      await reveal(stillResult, 120);
+      expect(stillResult, findsOneWidget);
+      expect(services.requests.map((request) => request.fullQuery).toSet(), {
+        'submitted #tag',
+      });
+      expect(services.requests.map((request) => request.filter), [
+        MediaFilter.gif,
+        MediaFilter.staticImage,
+        MediaFilter.all,
+      ]);
+      expect(services.recordedQueries, ['submitted #tag']);
+      expect(services.markedRecent, isEmpty);
+    });
+  }
+
   testWidgets(
     'navigation cancels a pending all search and loads its library page',
     (tester) async {
@@ -703,6 +774,7 @@ class _FakeServices implements AppServices {
   ];
   List<MemeAsset> cached = const [];
   List<MemeAsset>? allAssets;
+  List<MemeAsset>? searchAssets;
   final deletedAssetIds = <String>[];
   int keptCopies = 0;
   int cachedReads = 0;
@@ -825,7 +897,13 @@ class _FakeServices implements AppServices {
     requests.add(request);
     if (pendingSearch != null) return pendingSearch!.future;
     return SearchResponse(
-      assets: [asset],
+      assets: (searchAssets ?? [asset]).where((result) {
+        return switch (request.filter) {
+          MediaFilter.all => true,
+          MediaFilter.gif => result.isGif,
+          MediaFilter.staticImage => !result.isGif,
+        };
+      }).toList(),
       attempts: const [],
       scope: request.scope,
     );

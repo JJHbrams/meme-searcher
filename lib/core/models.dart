@@ -155,7 +155,7 @@ class MemeAsset {
   /// It deliberately is not the provider-normalized query or a result title.
   final String? submittedQuery;
 
-  bool get isGif => (format ?? formatHint ?? '').toUpperCase() == 'GIF';
+  bool get isGif => displayFormat == 'GIF';
   String? get displayFormat =>
       knownImageFormat(format) ??
       knownImageFormat(formatHint) ??
