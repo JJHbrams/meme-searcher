@@ -46,6 +46,17 @@ class MemeSearchIntent {
   String? get googleQuery => trend?.query ?? profile?.query;
   String? get naverQuery => profile?.koreanQuery ?? profile?.query;
 
+  bool looksLikeUnregisteredName(String input) {
+    if (profile != null) return false;
+    final parts = subject.split(' ');
+    final joined = parts.join();
+    if (_koreanName.hasMatch(joined) && !_koreanNonNames.contains(joined)) {
+      return true;
+    }
+    return !parts.any(_nonNameWords.contains) &&
+        (_latinName.hasMatch(subject) || _mononym.hasMatch(input.trim()));
+  }
+
   bool matchesKnownSubject(String value) => _matchesProfile(_tokens(value));
 
   bool acceptsNaver(MemeAsset asset) => _matchesProfile(_evidence(asset));
@@ -163,6 +174,12 @@ class MemeSearchIntent {
     'meme roundup',
     'memes go viral',
     'meme wave',
+    'meme explained',
+    'caption explained',
+    'memes ideas',
+    '뜻과 유래',
+    '밈의 유래',
+    '활약 예고',
     '밈 확산',
     '밈 폭발',
     '밈 쏟아',
@@ -208,6 +225,69 @@ class MemeSearchIntent {
     '기자회견',
     '공식 사진',
   ];
+  static final _koreanName = RegExp(
+    r'^(?:[김이박최정강조윤장임한오서신권황안송전홍유고문양손배백허남심노하곽성차주우구민류나진지엄채원천방공현변염여추][가-힣]{2}|(?:남궁|황보|제갈|선우|독고|서문)[가-힣]{2})$',
+  );
+  static const _koreanNonNames = {'고양이', '강아지', '고구마', '이장면', '정색함'};
+  static final _latinName = RegExp(
+    r'^[a-zà-öø-ÿ]{2,}(?: [a-zà-öø-ÿ]{2,}){1,2}$',
+  );
+  static final _mononym = RegExp(r'^[A-ZÀ-ÖØ-Þ][a-zà-öø-ÿ]{3,19}$');
+  static const _nonNameWords = {
+    'an',
+    'the',
+    'my',
+    'your',
+    'our',
+    'this',
+    'that',
+    'before',
+    'after',
+    'of',
+    'from',
+    'with',
+    'and',
+    'is',
+    'in',
+    'on',
+    'how',
+    'when',
+    'why',
+    'meme',
+    'memes',
+    'reaction',
+    'video',
+    'clip',
+    'scene',
+    'gif',
+    'image',
+    'screenshot',
+    'parody',
+    'template',
+    'funny',
+    'cute',
+    'excited',
+    'sad',
+    'cat',
+    'dog',
+    'cry',
+    'crying',
+    'laugh',
+    'laughing',
+    'dance',
+    'dancing',
+    'interview',
+    'portrait',
+    'headshot',
+    'fail',
+    'fails',
+    'gaming',
+    'classic',
+    'old',
+    'original',
+    'retro',
+    'throwback',
+  };
   static const _stopWords = {
     'the',
     'and',

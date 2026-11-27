@@ -15,6 +15,7 @@ QueryPlan plan({
   List<String> contextTerms = const [],
   List<String> requiredContext = const [],
   List<String> tagTerms = const [],
+  int? googleRecentDays,
 }) => QueryPlan(
   original: words,
   words: words,
@@ -28,6 +29,7 @@ QueryPlan plan({
   providerQuery: words,
   filter: filter,
   similar: false,
+  googleRecentDays: googleRecentDays,
 );
 
 http.Response rpc(
@@ -92,6 +94,44 @@ void main() {
         expect(arguments['params'], containsPair('engine', 'google_images'));
         expect(arguments['params'], containsPair('tbs', 'ift:gif'));
         expect(arguments['params'], containsPair('gl', 'us'));
+        expect(arguments['params'], isNot(contains('period_unit')));
+      },
+    );
+
+    test(
+      'uses one Google Images search with a date window and GIF filter',
+      () async {
+        final searches = <Map>[];
+        final client = MockClient((request) async {
+          final body = jsonDecode(request.body) as Map;
+          switch (body['method']) {
+            case 'initialize':
+              return rpc({'protocolVersion': '2025-06-18'});
+            case 'notifications/initialized':
+              return http.Response('', 202);
+            case 'tools/call':
+              searches.add(body['params']['arguments']['params'] as Map);
+              return rpc({
+                'structuredContent': {
+                  'result': {'images_results': []},
+                },
+              });
+            default:
+              return http.Response('{}', 400);
+          }
+        });
+        await SerpApiMcpCollector(client: client).call(
+          plan(
+            words: 'Elon Musk meme',
+            filter: MediaFilter.gif,
+            googleRecentDays: 30,
+          ),
+          'secret',
+        );
+        expect(searches, hasLength(1));
+        expect(searches.single, containsPair('period_unit', 'd'));
+        expect(searches.single, containsPair('period_value', 30));
+        expect(searches.single, containsPair('tbs', 'ift:gif'));
       },
     );
 

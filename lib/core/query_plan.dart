@@ -27,6 +27,8 @@ class QueryPlan {
     this.familyId,
     this.alternateNaverQuery,
     this.memeIntent,
+    this.googleRecentDays,
+    this.searchedAt,
   });
 
   final String original;
@@ -45,6 +47,8 @@ class QueryPlan {
   final List<String> learnedSceneTerms;
   final String? familyId;
   final MemeSearchIntent? memeIntent;
+  final int? googleRecentDays;
+  final DateTime? searchedAt;
 
   String get naverQuery => alternateNaverQuery ?? providerQuery;
   bool get isKorean => RegExp(r'[가-힣]').hasMatch(words);
@@ -76,6 +80,7 @@ class QueryPlanner {
         words.add(token);
       }
     }
+    final searchedAt = now ?? DateTime.now();
     final phrase = learnedScene ?? lookupQuery ?? words.join(' ');
     final normalized = compactMemeText(phrase);
     final tagTerms = <String>[];
@@ -113,7 +118,7 @@ class QueryPlanner {
     ];
     final memeIntent =
         phrase.isNotEmpty && family == null && learnedScene == null
-        ? MemeSearchIntent.resolve(phrase, now ?? DateTime.now())
+        ? MemeSearchIntent.resolve(phrase, searchedAt)
         : null;
     final terms = <String>[
       if (phrase.isNotEmpty)
@@ -193,6 +198,12 @@ class QueryPlanner {
       learnedSceneTerms: learnedTerms,
       familyId: family?.id,
       memeIntent: memeIntent,
+      searchedAt: searchedAt,
+      googleRecentDays:
+          rawTags.isEmpty &&
+              (memeIntent?.looksLikeUnregisteredName(phrase) ?? false)
+          ? 30
+          : null,
     );
   }
 

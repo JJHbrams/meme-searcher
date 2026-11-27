@@ -55,6 +55,10 @@ class SerpApiMcpCollector {
       'q': plan.providerQuery,
       'gl': _countryFor(plan),
       'hl': _languageFor(plan),
+      if (plan.googleRecentDays case final days?) ...{
+        'period_unit': 'd',
+        'period_value': days,
+      },
       if (plan.filter == MediaFilter.gif) 'tbs': 'ift:gif',
     };
     final result = await _rpc(authHeaders, 2, 'tools/call', <String, dynamic>{

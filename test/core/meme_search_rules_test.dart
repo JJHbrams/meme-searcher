@@ -10,6 +10,156 @@ void main() {
   final activeDate = DateTime(2026, 11, 27);
 
   group('meme search rules', () {
+    test('dates only the Google search for name-shaped unregistered input', () {
+      for (final name in ['Elon Musk', 'pedro pascal', 'Rihanna', '김두한']) {
+        final plan = planner.plan(SearchRequest(query: name), now: activeDate);
+        expect(plan.memeIntent?.profile, isNull, reason: name);
+        expect(plan.googleRecentDays, 30, reason: name);
+        expect(plan.naverQuery, startsWith(name), reason: name);
+      }
+      for (final query in [
+        '과일 먹는 짤',
+        '고양이',
+        'Jim Carrey laughing',
+        'Jim Carrey classic',
+        'Drake',
+        '젠슨 황',
+        'Elon Musk #인터뷰',
+      ]) {
+        expect(
+          planner
+              .plan(SearchRequest(query: query), now: activeDate)
+              .googleRecentDays,
+          isNull,
+          reason: query,
+        );
+      }
+      expect(
+        planner
+            .plan(
+              const SearchRequest(query: 'Elon Musk'),
+              learnedScene: 'a named reaction',
+              now: activeDate,
+            )
+            .googleRecentDays,
+        isNull,
+      );
+    });
+
+    test(
+      'keeps a credible all-time meme among the first three recent results',
+      () {
+        final plan = planner.plan(
+          const SearchRequest(query: 'Elon Musk'),
+          now: activeDate,
+        );
+        MemeAsset candidate(
+          String id,
+          String engine,
+          String title,
+          String host,
+          int rank,
+        ) => MemeAsset(
+          id: id,
+          title: title,
+          origin: 'web',
+          sourceUrl:
+              'https://$host/${engine == 'google' ? '2026/11/25/' : ''}$id',
+          originalUrl: 'https://example.test/$id.png',
+          engines: [engine],
+          providerRanks: {engine: rank},
+          originalProviderRank: rank,
+        );
+        final recent = [
+          for (var rank = 1; rank <= 4; rank++)
+            candidate(
+              'recent-$rank',
+              'google',
+              'Elon Musk reaction meme $rank',
+              'tenor.com',
+              rank,
+            ),
+        ];
+        final undated = recent
+            .map(
+              (asset) =>
+                  asset.copyWith(sourceUrl: 'https://tenor.com/${asset.id}'),
+            )
+            .toList();
+        final classic = candidate(
+          'classic',
+          'naver',
+          'Elon Musk old reaction meme',
+          'giphy.com',
+          8,
+        );
+        final portrait = candidate(
+          'photo',
+          'naver',
+          'Elon Musk official portrait',
+          'example.test',
+          1,
+        );
+        final product = candidate(
+          'product',
+          'naver',
+          'Elon Musk meme print',
+          'www.etsy.com',
+          1,
+        );
+        expect(
+          ranking
+              .rank([...recent, classic, portrait, product], plan)
+              .take(3)
+              .map((asset) => asset.id),
+          ['recent-1', 'recent-2', 'classic'],
+        );
+        expect(ranking.rank([...undated, classic], plan).first.id, 'classic');
+        expect(
+          ranking
+              .rank([...recent, portrait, product], plan)
+              .take(3)
+              .map((asset) => asset.id),
+          ['recent-1', 'recent-2', 'recent-3'],
+        );
+      },
+    );
+
+    test('uses a corroborating source date for the recent bonus', () {
+      final plan = planner.plan(
+        const SearchRequest(query: 'Elon Musk'),
+        now: activeDate,
+      );
+      const post = MemeAsset(
+        id: 'post',
+        title: 'Elon Musk reaction meme',
+        origin: 'web',
+        engines: ['google'],
+        providerRanks: {'google': 1},
+      );
+      final undated = post.copyWith(sourceUrl: 'https://example.test/meme');
+      final current = post.copyWith(
+        sourceUrl: 'https://example.test/2026/11/25/meme',
+      );
+      final invalidDay = post.copyWith(
+        sourceUrl: 'https://example.test/2026/10/32/meme',
+      );
+      final oldX = post.copyWith(
+        sourceUrl: 'https://x.com/elonmusk/status/2086305001110954244',
+      );
+      const snowflakeEpoch = 1288834974657;
+      final recentMillis = DateTime.utc(2026, 11, 20).millisecondsSinceEpoch;
+      final recentId = BigInt.from(recentMillis - snowflakeEpoch) << 22;
+      final recentX = post.copyWith(
+        sourceUrl: 'https://x.com/creator/status/$recentId',
+      );
+      final score = ranking.cheapScore(undated, plan);
+      expect(ranking.cheapScore(current, plan), score + 25);
+      expect(ranking.cheapScore(recentX, plan), score + 25);
+      expect(ranking.cheapScore(oldX, plan), score);
+      expect(ranking.cheapScore(invalidDay, plan), score);
+    });
+
     test('Jensen aliases share the active trend and Korean Naver query', () {
       for (final alias in ['젠슨 황', 'Jensen Huang', 'Jenson Hwang']) {
         final plan = planner.plan(SearchRequest(query: alias), now: activeDate);

@@ -224,7 +224,7 @@ class DeviceAppServices implements AppServices {
   Future<_CachedSearch> _webCandidates(QueryPlan plan) async {
     final cacheKey =
         '${plan.filter.wireName}|${plan.similar}|${plan.isKorean}|'
-        '${plan.providerQuery}|${plan.naverQuery}';
+        '${plan.providerQuery}|${plan.naverQuery}|${plan.googleRecentDays}';
     final cutoff = DateTime.now().subtract(const Duration(seconds: 60));
     _cache.removeWhere((_, value) => value.at.isBefore(cutoff));
     final cached = _cache[cacheKey];

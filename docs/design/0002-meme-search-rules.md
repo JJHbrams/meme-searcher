@@ -111,4 +111,10 @@ stateDiagram-v2
 | `망했어요` | 박정욱의 경기 중계 대사를 다룬 네이버 결과가 첫 번째였다. |
 | `wapa~` | 알려진 Chandler 장면으로 검색어를 변환했다. 네이버 실측에서 정확한 원본은 수집되지 않았다. |
 
-Google의 실제 순위는 측정하지 않았다. 앱 테스트는 Google 요청의 대상, GIF 옵션, 모의 후보의 통합 정렬과 저장 교정을 확인한다. 인스타그램과 틱톡에 직접 로그인하거나 유행을 자동 수집하지 않는다.
+위 네이버 비교에서는 Google 순위를 측정하지 않았다. 앱 테스트는 Google 요청의 대상, GIF 옵션, 모의 후보의 통합 정렬과 저장 교정을 확인한다. 인스타그램과 틱톡에 직접 로그인하거나 유행을 자동 수집하지 않는다.
+
+## 미등록 인물의 최근 밈
+
+태그, 명시한 장면, 사용자 교정 없이 모르는 이름이 들어오면 Google 이미지의 공식 기간 옵션으로 최근 30일 후보를 모은다. 네이버는 기간 제한이 없는 검색으로 오래된 장면도 제공한다. 공급자별 검색 횟수는 한 번이다. Google 기간 필터를 통과한 결과라도 검색한 이름·밈 단서에 더해 출처 URL의 날짜 또는 X 게시물 ID에 담긴 발행 시각이 기간 안에 있어야 최신 가산점을 준다. [X 게시물 ID 생성 방식](https://github.com/twitter-archive/snowflake/blob/snowflake-2010/src/main/scala/com/twitter/service/snowflake/IdWorker.scala) Google 결과가 상위 세 자리를 차지할 때 기간 제한 없는 검색에 강한 밈 후보도 있으면 함께 보여 준다. 앞선 후보에 날짜가 확인된 최근 밈이 있을 때에는 세 번째에, 날짜 근거가 없을 때에는 첫 번째에 배치한다. 명시적 사용자 피드백은 최종 순서에 적용한다. 발행 시각은 게시물의 나이를 알려 주며 조회수, 확산 속도, 밈의 최초 제작일은 알 수 없다.
+
+2026-11-27에 사전에 없는 `Elon Musk`, `Pedro Pascal`, `김두한`을 기존 SerpApi Google Images 수집기로 기간 없음과 최근 30일로 각각 확인했다. 여섯 요청 모두 성공했고, 최근 쿼리의 실제 Google URL에 기간 조건이 들어갔다. 개별 이미지에는 별도 게시 시각 필드가 없었다. 기간 조건을 적용한 Elon Musk 상위 결과에 몇 년 전 Reddit 글이 남았다. Google 최근 검색 상위 5개에 없는 김두한 사딸라 움짤은 네이버 전체 기간 검색에서 1위였다. [Reddit 게시물](https://www.reddit.com/r/terriblefacebookmemes/comments/v4kxrw/not_another_meme_featuring_elon_musk/) [Google Images 기간 옵션](https://serpapi.com/google-images-api#time-period)
