@@ -109,8 +109,9 @@ class MemeSearchIntent {
       return text.replaceAll(' ', '').contains(term.replaceAll(' ', ''));
     }
     final words = term.split(' ');
-    if (words.every(_englishWord.hasMatch))
+    if (words.every(_englishWord.hasMatch)) {
       return ' $text '.contains(' $term ');
+    }
     return text.contains(term);
   }
 
