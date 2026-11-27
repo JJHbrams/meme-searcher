@@ -229,7 +229,7 @@ class NaverImageCollector {
   Future<List<MemeAsset>> call(QueryPlan plan) async {
     final uri = Uri.https('search.naver.com', '/search.naver', <String, String>{
       'where': 'image',
-      'query': plan.providerQuery,
+      'query': plan.naverQuery,
     });
     final response = await _client
         .get(uri, headers: const {'user-agent': 'Mozilla/5.0'})
@@ -343,6 +343,8 @@ bool _matchesConcept(MemeAsset asset, QueryPlan plan) {
   if (tags.isNotEmpty && !tags.any(text.contains)) return false;
   if (required.isNotEmpty && !required.every(text.contains)) return false;
   if (plan.learnedSceneTerms.isNotEmpty) return plan.matchesLearnedScene(text);
+  final intent = plan.memeIntent;
+  if (intent != null && intent.acceptsNaver(asset)) return true;
   if (core.isNotEmpty) return core.any(text.contains);
   return context.isEmpty || context.any(text.contains);
 }
@@ -395,7 +397,5 @@ String? cleanText(String? value) {
 
 String? _string(dynamic value) => value is String ? value : null;
 
-String _countryFor(QueryPlan plan) =>
-    RegExp(r'[가-힣]').hasMatch(plan.words) ? 'kr' : 'us';
-String _languageFor(QueryPlan plan) =>
-    RegExp(r'[가-힣]').hasMatch(plan.words) ? 'ko' : 'en';
+String _countryFor(QueryPlan plan) => plan.isKorean ? 'kr' : 'us';
+String _languageFor(QueryPlan plan) => plan.isKorean ? 'ko' : 'en';

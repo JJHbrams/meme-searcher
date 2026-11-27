@@ -223,7 +223,8 @@ class DeviceAppServices implements AppServices {
   // current drawer. A promotion or eviction must be visible immediately.
   Future<_CachedSearch> _webCandidates(QueryPlan plan) async {
     final cacheKey =
-        '${plan.filter.wireName}|${plan.similar}|${plan.providerQuery}';
+        '${plan.filter.wireName}|${plan.similar}|${plan.isKorean}|'
+        '${plan.providerQuery}|${plan.naverQuery}';
     final cutoff = DateTime.now().subtract(const Duration(seconds: 60));
     _cache.removeWhere((_, value) => value.at.isBefore(cutoff));
     final cached = _cache[cacheKey];
@@ -256,7 +257,7 @@ class DeviceAppServices implements AppServices {
         SearchAttempt(
           engine: 'naver',
           status: 'unavailable',
-          query: plan.providerQuery,
+          query: plan.naverQuery,
         ),
       );
     } else {
@@ -331,6 +332,7 @@ class DeviceAppServices implements AppServices {
     List<List<MemeAsset>> groups,
     List<SearchAttempt> attempts,
   ) async {
+    final query = engine == 'naver' ? plan.naverQuery : plan.providerQuery;
     try {
       final results = await action();
       groups.add([
@@ -347,17 +349,13 @@ class DeviceAppServices implements AppServices {
         SearchAttempt(
           engine: engine,
           status: 'ok',
-          query: plan.providerQuery,
+          query: query,
           count: results.length,
         ),
       );
     } catch (_) {
       attempts.add(
-        SearchAttempt(
-          engine: engine,
-          status: 'failed',
-          query: plan.providerQuery,
-        ),
+        SearchAttempt(engine: engine, status: 'failed', query: query),
       );
     }
   }
@@ -377,7 +375,9 @@ class DeviceAppServices implements AppServices {
     final phraseMatch = plan.learnedSceneTerms.isEmpty
         ? core.every(value.contains)
         : plan.matchesLearnedScene(value);
-    return (familyMatch || phraseMatch) && tags.every(value.contains);
+    final knownSubject = plan.memeIntent?.matchesKnownSubject(value) ?? false;
+    return (familyMatch || phraseMatch || knownSubject) &&
+        tags.every(value.contains);
   }
 
   @override
