@@ -84,9 +84,13 @@ class RankingService {
     final context = plan.contextTerms
         .map(_compact)
         .where((value) => value.isNotEmpty);
-    var score = core.where((value) => text.contains(value)).length * 18;
+    final knownWebSubject = asset.isWeb && plan.memeIntent?.profile != null;
+    var score = knownWebSubject
+        ? 0
+        : core.where((value) => text.contains(value)).length * 18;
     score += tags.where((value) => text.contains(value)).length * 10;
     score += context.where((value) => text.contains(value)).length * 7;
+    score += plan.memeIntent?.candidateScore(asset) ?? 0;
     if ((asset.formatHint ?? '').toUpperCase() == 'GIF' ||
         (asset.originalUrl ?? '')
             .toLowerCase()

@@ -148,20 +148,20 @@ void main() {
       final matches = original['matches'] as List;
       expect(matches, hasLength(2));
       expect(matches[0]['source'], 'app_web');
-      expect(matches[0]['title'], '그냥 망했어요 리액션');
-      expect(matches[0]['markdown'], endsWith('.png)'));
-      final sceneId = matches[1]['recommendation_id'] as String;
-      final genericId = matches[0]['recommendation_id'] as String;
-      expect(searches, ['망했어요 짤']);
+      expect(matches[0]['title'], _correction);
+      expect(matches[0]['format'], 'image');
+      expect(matches[1]['markdown'], endsWith('.png)'));
+      final genericId = matches[1]['recommendation_id'] as String;
+      expect(searches, ['박정욱 망했어요']);
 
       const direct = SearchRequest(
         query: '망했어요',
         filter: MediaFilter.staticImage,
       );
-      expect((await client.feedback(sceneId, 'helpful'))['status'], 'saved');
-      expect((await first.search(direct)).assets.first.originalUrl, _scene);
-      expect((await client.feedback(sceneId, 'wrong'))['status'], 'saved');
+      expect((await client.feedback(genericId, 'helpful'))['status'], 'saved');
       expect((await first.search(direct)).assets.first.originalUrl, _generic);
+      expect((await client.feedback(genericId, 'wrong'))['status'], 'saved');
+      expect((await first.search(direct)).assets.first.originalUrl, _scene);
       expect(
         (await client.feedback('made-up', 'helpful'))['status'],
         'unknown_recommendation',
