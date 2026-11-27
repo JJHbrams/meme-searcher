@@ -38,6 +38,18 @@ ZIP 다운로드 버튼만 표시되는 이전 버전은 최신 릴리즈 ZIP의
 - 미리보기의 **복사** 또는 `Ctrl+C`로 이미지를 복사합니다. 원본 파일을 첨부하려면 **파일로 복사**를, 파일을 PC에 받으려면 **원본 저장**을 누르세요. GIF는 원본 파일로 복사합니다.
 - 웹 원본을 열 수 없고 썸네일만 남아 있으면 **미리보기 이미지 복사**로 표시된 해상도의 이미지를 복사할 수 있습니다.
 
+## Codex에서 밈 쓰기
+
+릴리스의 Assets에서 `…-mcp.zip`을 별도로 받아 풉니다. ZIP 안의 `README.md`에 Codex 연결 명령이 들어 있습니다. Node.js와 Codex CLI가 필요합니다. [최신 릴리스](https://github.com/JJHbrams/meme-searcher/releases/latest)
+
+이 저장소를 신뢰하는 Codex 프로젝트로 열면 프로젝트 설정으로도 `meme_snatcher` MCP가 연결됩니다. 설정을 추가하기 전에 열어 둔 세션이라면 새 세션에서 적용을 확인할 수 있습니다.
+
+Codex에 친구와 주고받을 리액션이나 가벼운 축하를 부탁하면 어울리는 기본 짤 또는 즐겨찾기를 답변에 한 장 넣습니다. 고객 안내나 민감한 대화에서는 짤을 쓰지 않습니다. 이미지와 GIF를 모두 지원하며 실제 표시 방식은 Codex 화면에 따라 다릅니다.
+
+기본 짤과 즐겨찾기는 로컬에서 찾습니다. Windows 앱이 실행 중이면 MCP의 웹 옵션으로 앱의 웹 검색 모드도 사용할 수 있습니다. 이때 Google 이미지는 앱의 SerpApi 설정을 사용합니다.
+
+Codex가 추천한 짤에 대해 명확히 평가하거나 원하는 장면을 알려주면 앱에 피드백을 저장합니다. 새로 저장한 규칙은 Codex 추천과 앱의 직접 검색에 함께 적용됩니다.
+
 ## 마법의 소라고동
 
 **마법의 소라고동**은 왼쪽 메뉴에서 열 수 있습니다. 창 폭이 좁으면 하단의 **소라고동**을 누르세요. 질문을 쓴 뒤 그림 속 고리를 당겼다가 놓으면 대답합니다. 키보드로는 고리에 포커스를 옮기고 Space를 눌렀다 놓으세요. **원 위시 윌로우**에서는 하루 한 번 가지를 꺾어 소원을 빌 수 있습니다. 두 놀이는 PC에서 동작하며 검색 횟수를 쓰지 않습니다.
@@ -77,7 +89,7 @@ powershell -NoProfile -File .\tools\package-windows-release.ps1 -ExpectedTag $ta
 
 `dist\SHA256SUMS.txt`의 해시, ZIP을 새 폴더에 풀었을 때의 실행, 그리고 ZIP 안의 `RELEASE-BUILD.json`을 확인한 뒤에만 게시합니다. 실제 태그의 네 번째 숫자는 `git rev-list --count HEAD`이며 65534 이하여야 합니다.
 
-GitHub 게시은 태그와 PE 버전이 같은지 다시 확인하고, 초안 릴리스에 ZIP·체크섬을 올린 뒤 공개 및 익명 다운로드 해시 검증까지 마쳐야 합니다. `gh`를 쓸 수 있다면:
+GitHub에 게시할 때는 태그와 PE 버전을 확인하고, 초안에 배포 파일과 체크섬을 올린 뒤 공개 및 익명 다운로드 해시 검증까지 마쳐야 합니다. `gh`를 쓸 수 있다면 아래 명령을 실행하세요.
 
 ```powershell
 $tag = 'v' + (Get-Item .\build\windows\x64\runner\Release\meme_searcher.exe).VersionInfo.FileVersion
@@ -86,6 +98,6 @@ git push origin $tag
 powershell -NoProfile -File .\tools\package-windows-release.ps1 -ExpectedTag $tag -IncludeAndroid -Publish
 ```
 
-`gh`가 없는 환경에서는 인증된 GitHub REST 도구로 같은 순서(초안 생성 → 두 asset 업로드·digest 대조 → 공개 → 로그인하지 않은 다운로드 SHA-256 대조)를 수행합니다. 어떤 경로든 기존 태그나 릴리스를 덮어쓰지 않습니다. 전체 절차와 완료 기준은 [Windows 릴리스 규칙](release.md)을 참고하세요.
+`gh`가 없는 환경에서는 인증된 GitHub REST 도구로 초안 생성, Windows ZIP·Android APK·MCP ZIP·체크섬 업로드와 해시 대조, 공개, 익명 다운로드 해시 대조를 차례로 수행합니다. 어떤 경로든 기존 태그나 릴리스를 덮어쓰지 않습니다. 전체 절차와 완료 기준은 [Windows 릴리스 규칙](release.md)을 참고하세요.
 
 자체 소스에는 별도 라이선스가 지정되어 있지 않습니다. 포함된 소프트웨어와 밈의 권리자 및 원본 출처는 [서드파티 고지](../THIRD_PARTY_NOTICES.md)에서 확인할 수 있습니다.
