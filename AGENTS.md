@@ -6,7 +6,7 @@ ZIP에는 `meme_searcher.exe`, 필요한 DLL, `data`, 라이선스와 `RELEASE-B
 
 Windows Release 빌드 후에는 저장소 루트에 `meme_searcher.exe`와 실행에 필요한 DLL·`data`를 함께 둔다. 격리된 빌드 worktree를 사용했다면 검증한 런타임 파일을 사용자가 사용하는 기본 저장소·작업 공간 루트에도 복사하고 해시를 대조한다. 이 산출물은 Git의 추적 대상에 추가하지 않는다.
 
-정식 릴리스에는 같은 커밋과 태그로 빌드한 서명 Android APK도 함께 넣는다. `tools/build-android-release.ps1`로 서명과 APK 버전을 확인한다. Codex용 MCP는 같은 릴리스에 `meme-searcher-v…-mcp.zip`이라는 독립 에셋으로 올린다. `tools/package-windows-release.ps1 -IncludeAndroid`로 세 배포 파일의 체크섬을 생성한다. Android 릴리스 서명 키와 속성 파일은 저장소 밖에 보관한다.
+정식 릴리스에는 같은 커밋과 태그로 빌드한 서명 Android APK도 함께 넣는다. `tools/build-android-release.ps1`로 서명과 APK 버전을 확인한다. Codex·Claude용 MCP는 같은 릴리스에 `meme-searcher-v…-mcp.zip`이라는 독립 에셋으로 올린다. `tools/package-windows-release.ps1 -IncludeAndroid`로 세 배포 파일의 체크섬을 생성한다. Android 릴리스 서명 키와 속성 파일은 저장소 밖에 보관한다.
 
 ## Codex 밈 리액션
 

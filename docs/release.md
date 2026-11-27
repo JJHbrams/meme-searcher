@@ -6,7 +6,7 @@
 
 같은 태그의 Windows ZIP과 Android APK를 GitHub Assets에 올린다. Windows ZIP에는 `meme_searcher.exe`, `meme_updater.exe`, Flutter 및 플러그인 DLL, WebView2 로더, `data`, 런타임 라이선스, `README.md`, `THIRD_PARTY_NOTICES.md`, `RELEASE-BUILD.json`이 들어간다. Android 배포 파일은 `meme-searcher-v<버전>-android.apk`다.
 
-Codex용 MCP는 같은 태그에서 `meme-searcher-v<버전>-mcp.zip`으로 제공한다. ZIP에는 MCP 서버, 기본 짤, 연결 안내, 출처 고지가 들어간다. 독립 ZIP만 점검할 때는 `tools/package-mcp-release.ps1 -Tag vX.Y.Z.N`을 실행할 수 있다.
+Codex·Claude용 MCP는 같은 태그에서 `meme-searcher-v<버전>-mcp.zip`으로 제공한다. ZIP에는 MCP 서버, 기본 짤, 연결 안내, 출처 고지가 들어간다. 독립 ZIP만 점검할 때는 `tools/package-mcp-release.ps1 -Tag vX.Y.Z.N`을 실행할 수 있다.
 
 ## 필수 순서
 

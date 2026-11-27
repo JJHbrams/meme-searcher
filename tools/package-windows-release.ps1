@@ -147,7 +147,7 @@ if ($Publish) {
         $notes = & git -C $repoRoot -c i18n.logOutputEncoding=UTF-8 tag --list --format='%(contents)' $tag
         Assert-LastExitCode 'Reading tag annotation'
         $releaseNotes = ($notes -join "`n").Trim()
-        $releaseNotes += "`n`nCodex용 MCP가 필요하면 Assets에서 $mcpArchiveName 파일을 받으세요."
+        $releaseNotes += "`n`nCodex·Claude용 MCP가 필요하면 Assets에서 $mcpArchiveName 파일을 받으세요."
         [IO.File]::WriteAllText($notesPath, $releaseNotes, [Text.UTF8Encoding]::new($false))
         & gh release create $tag @assets --repo $repo --verify-tag --draft --notes-file $notesPath --title $title
         Assert-LastExitCode 'Creating draft release'

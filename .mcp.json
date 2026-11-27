@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "meme_snatcher": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["tools/meme-snatcher-mcp.mjs"]
+    }
+  }
+}
