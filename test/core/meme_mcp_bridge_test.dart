@@ -72,6 +72,114 @@ void main() {
     );
   }
 
+  test(
+    'known blocked sources cannot reach app search or MCP attachments',
+    () async {
+      FlutterSecureStorage.setMockInitialValues({'serpapi_api_key': 'fixture'});
+      const blocked = MemeAsset(
+        id: 'blocked',
+        title: '출처 검증 짤',
+        origin: 'web',
+        originalUrl: _scene,
+        sourceUrl: 'https://MEDIA.ILBE.COM./post',
+      );
+      final duplicate = blocked.copyWith(
+        id: 'duplicate',
+        sourceUrl: 'https://mirror.example/post',
+      );
+      const blockedPreview = MemeAsset(
+        id: 'blocked-preview',
+        title: '출처 검증 미리보기',
+        origin: 'web',
+        originalUrl: _crying,
+        previewUrl: 'https://cdn.megalian.com/preview',
+      );
+      const referenceOnly = MemeAsset(
+        id: 'reference-only',
+        title: '출처 검증 · 두 커뮤니티를 설명한 기사',
+        origin: 'web',
+        originalUrl: _generic,
+        sourceUrl: 'https://ilbe.com.news.example/article?topic=megalian.com',
+      );
+      final services = DeviceAppServices(
+        store: await LocalLibraryStore.open(directory: root),
+        downloader: _FixtureDownloader(files),
+        googleSearch: (_, _) async => [blocked, blockedPreview],
+        naverSearch: (_) async => [duplicate, referenceOnly],
+      );
+      const query = '출처 검증';
+      final result = await services.search(
+        const SearchRequest(query: query, scope: SearchScope.web),
+      );
+      expect(result.assets.map((asset) => asset.id), ['reference-only']);
+
+      final bridge = await MemeMcpBridge.start(services);
+      addTearDown(bridge.close);
+      final client = await _McpClient.start(
+        await services.mcpDrawerDirectory(),
+      );
+      addTearDown(client.close);
+      final remote = await client.search(query, scope: 'web');
+      expect(remote['status'], 'ok');
+      expect((remote['matches'] as List).map((match) => match['id']), [
+        'reference-only',
+      ]);
+    },
+  );
+
+  test(
+    'hidden source metadata survives storage without surfacing in the drawer',
+    () async {
+      final store = await LocalLibraryStore.open(directory: root);
+      final services = DeviceAppServices(store: store);
+      final drawer = await services.mcpDrawerDirectory();
+      final media = Directory(p.join(drawer.path, 'media'));
+      await media.create(recursive: true);
+      final file = await File(p.join(media.path, 'saved-source.png'))
+          .writeAsBytes(files[_generic]!);
+
+      final hidden = MemeAsset(
+        id: 'hidden-favorite',
+        title: '보라 부엉이',
+        origin: 'saved',
+        favorite: true,
+        filePath: file.path,
+        sourceUrl: 'https://megalian.com/archive',
+      );
+      await store.upsert(hidden);
+      await services.markRecent(hidden.id, asset: hidden);
+      await store.cacheMedia(
+        MediaFile(
+          bytes: Uint8List.fromList([...files[_scene]!, 0]),
+          path: file.path,
+          asset: const MemeAsset(
+            id: 'hidden-cache',
+            title: '출처 있는 임시 짤',
+            origin: 'web',
+            originalUrl: 'https://cdn.ilbe.com/asset.webp',
+            format: 'WEBP',
+          ),
+        ),
+        previewOnly: false,
+      );
+
+      expect(
+        (await services.library(favoritesOnly: true)).map((asset) => asset.id),
+        isNot(contains(hidden.id)),
+      );
+      expect(await services.library(recentOnly: true), isEmpty);
+      expect(await services.cachedLibrary(), isEmpty);
+      expect(store.favorites().map((asset) => asset.id), contains(hidden.id));
+      expect(store.cachedAssets(), isNotEmpty);
+      expect(await file.exists(), isTrue);
+
+      final standalone = await _McpClient.start(drawer);
+      addTearDown(standalone.close);
+      final rejected = await standalone.search('보라 부엉이', scope: 'local');
+      expect(rejected['status'], 'no_match');
+    },
+  );
+
   test('a requested reaction reaches app web after a drawer miss', () async {
     final instance = await app();
     final bridge = await MemeMcpBridge.start(instance);

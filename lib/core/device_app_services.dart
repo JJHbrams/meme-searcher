@@ -10,6 +10,7 @@ import 'app_services.dart';
 import 'catalog.dart';
 import 'local_library_store.dart';
 import 'meme_feedback_store.dart';
+import 'meme_source_policy.dart';
 import 'models.dart';
 import 'query_plan.dart';
 import 'ranking_service.dart';
@@ -410,7 +411,12 @@ class DeviceAppServices implements AppServices {
     final items = <MemeAsset>[];
     for (final favorite in _store!.favorites()) {
       final url = favorite.originalUrl;
-      if (!favorite.isWeb || url == null || favorite.isPreviewOnly) continue;
+      if (!favorite.isWeb ||
+          url == null ||
+          favorite.isPreviewOnly ||
+          hasHiddenMemeSource(favorite)) {
+        continue;
+      }
       for (final cached in _store!.filesForUrl(url, previewOnly: false)) {
         if (cached.filePath == null) continue;
         items.add(cached.copyWith(favorite: true));
@@ -421,11 +427,17 @@ class DeviceAppServices implements AppServices {
   }
 
   List<MemeAsset> _filterMedia(List<MemeAsset> items, MediaFilter filter) {
-    if (filter == MediaFilter.gif)
-      items = items.where((item) => item.isGif).toList();
-    if (filter == MediaFilter.staticImage)
-      items = items.where((item) => !item.isGif).toList();
-    return items;
+    return items
+        .where(
+          (item) =>
+              !hasHiddenMemeSource(item) &&
+              switch (filter) {
+                MediaFilter.all => true,
+                MediaFilter.gif => item.isGif,
+                MediaFilter.staticImage => !item.isGif,
+              },
+        )
+        .toList();
   }
 
   @override

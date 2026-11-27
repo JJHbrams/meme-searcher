@@ -128,10 +128,25 @@ function readDrawer(drawerPath) {
   }
 }
 
+// Keep in sync with lib/core/meme_source_policy.dart for standalone use.
+const hiddenSourceHosts = ['ilbe.com', 'megalian.com'];
+
+function hasHiddenSource(item) {
+  return [item?.sourceUrl, item?.source_url, item?.originalUrl, item?.previewUrl, item?.discoveryUrl].some((value) => {
+    if (typeof value !== 'string') return false;
+    try {
+      const host = new URL(value).hostname.toLowerCase().replace(/\.$/, '');
+      return hiddenSourceHosts.some((domain) => host === domain || host.endsWith(`.${domain}`));
+    } catch {
+      return false;
+    }
+  });
+}
+
 function loadCandidates(drawerPath) {
   const drawer = readDrawer(drawerPath);
   const deletedSeeds = new Set(list(drawer.deletedSeedIds));
-  const favorites = list(drawer.assets).filter((item) => item?.favorite === true);
+  const favorites = list(drawer.assets).filter((item) => item?.favorite === true && !hasHiddenSource(item));
   const favoriteSeeds = new Set(favorites.filter((item) => item.origin === 'seed').map((item) => item.id));
   const candidates = seeds.filter((item) => !deletedSeeds.has(item.id)).map((item) => ({
     ...item, favorite: favoriteSeeds.has(item.id), root: seedDirectory, file: join(seedDirectory, item.file),
@@ -143,14 +158,20 @@ function loadCandidates(drawerPath) {
   const mediaRoot = join(drawerPath, 'media');
   const cacheRoot = join(drawerPath, 'cache');
   const cacheByOriginal = new Map();
+  const hiddenOriginals = new Set();
   for (const record of list(drawer.cacheAssets)) {
     const item = record?.asset;
+    if (item?.originalUrl && hasHiddenSource(item)) {
+      hiddenOriginals.add(item.originalUrl);
+      continue;
+    }
     if (item?.originalUrl && item.origin === 'cache' && !item.isPreviewOnly && !deletedCache.has(record.digest)) {
       cacheByOriginal.set(item.originalUrl, item.filePath);
     }
   }
   function addFavorite(item, root, path, deleted) {
-    if (typeof path !== 'string' || typeof item.id !== 'string' || deleted.has(item.id)) return;
+    if (typeof path !== 'string' || typeof item.id !== 'string' || deleted.has(item.id) ||
+        hasHiddenSource(item) || hiddenOriginals.has(item.originalUrl)) return;
     const digest = path.split(/[\\/]/).at(-1)?.split('.')[0];
     if (deleted.has(digest)) return;
     const terms = [item.submittedQuery, item.familyName, item.variant, ...list(item.aliases),
@@ -295,7 +316,7 @@ async function findReaction(args, drawerPath) {
   if (app && app.status === 'ok') {
     const matches = [];
     let preview;
-    for (const item of list(app.matches).slice(0, 3)) {
+    for (const item of list(app.matches).filter((item) => !hasHiddenSource(item)).slice(0, 3)) {
       const media = readMedia(drawerPath, item?.path);
       if (!media || (format !== 'any' && format !== media.format)) continue;
       matches.push(buildMatch(item, media));
@@ -340,7 +361,7 @@ function serve(drawerPath) {
     let response;
     if (method === 'initialize') {
       const requested = params?.protocolVersion;
-      response = { protocolVersion: versions.includes(requested) ? requested : versions[0], serverInfo: { name: 'meme-snatcher', version: '0.2.1' }, capabilities: { tools: {} }, instructions };
+      response = { protocolVersion: versions.includes(requested) ? requested : versions[0], serverInfo: { name: 'meme-snatcher', version: '0.2.2' }, capabilities: { tools: {} }, instructions };
     } else if (method === 'tools/list') {
       response = { tools: [tool, feedbackTool] };
     } else if (method === 'tools/call' && params?.name === tool.name) {

@@ -1,5 +1,6 @@
 // ignore_for_file: curly_braces_in_flow_control_structures, prefer_collection_literals
 
+import 'meme_source_policy.dart';
 import 'models.dart';
 import 'query_plan.dart';
 
@@ -10,6 +11,7 @@ class RankingService {
 
   List<MemeAsset> mergeAndRank(List<List<MemeAsset>> groups, QueryPlan plan) {
     final merged = <String, MemeAsset>{};
+    final hidden = <String>{};
     for (final group in groups) {
       for (final candidate in group) {
         final url = candidate.isPreviewOnly
@@ -17,6 +19,11 @@ class RankingService {
             : candidate.originalUrl;
         final address = canonicalOriginalUrl(url ?? '');
         final key = address.isEmpty ? 'local:${candidate.id}' : address;
+        if (hasHiddenMemeSource(candidate)) {
+          hidden.add(key);
+          merged.remove(key);
+        }
+        if (hidden.contains(key)) continue;
         final existing = merged[key];
         if (existing == null) {
           merged[key] = candidate;
