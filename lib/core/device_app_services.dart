@@ -10,6 +10,7 @@ import 'app_services.dart';
 import 'catalog.dart';
 import 'local_library_store.dart';
 import 'meme_feedback_store.dart';
+import 'meme_source_policy.dart';
 import 'models.dart';
 import 'query_plan.dart';
 import 'ranking_service.dart';
@@ -223,7 +224,8 @@ class DeviceAppServices implements AppServices {
   // current drawer. A promotion or eviction must be visible immediately.
   Future<_CachedSearch> _webCandidates(QueryPlan plan) async {
     final cacheKey =
-        '${plan.filter.wireName}|${plan.similar}|${plan.providerQuery}';
+        '${plan.filter.wireName}|${plan.similar}|${plan.isKorean}|'
+        '${plan.providerQuery}|${plan.naverQuery}|${plan.googleRecentDays}';
     final cutoff = DateTime.now().subtract(const Duration(seconds: 60));
     _cache.removeWhere((_, value) => value.at.isBefore(cutoff));
     final cached = _cache[cacheKey];
@@ -256,7 +258,7 @@ class DeviceAppServices implements AppServices {
         SearchAttempt(
           engine: 'naver',
           status: 'unavailable',
-          query: plan.providerQuery,
+          query: plan.naverQuery,
         ),
       );
     } else {
@@ -331,6 +333,7 @@ class DeviceAppServices implements AppServices {
     List<List<MemeAsset>> groups,
     List<SearchAttempt> attempts,
   ) async {
+    final query = engine == 'naver' ? plan.naverQuery : plan.providerQuery;
     try {
       final results = await action();
       groups.add([
@@ -347,17 +350,13 @@ class DeviceAppServices implements AppServices {
         SearchAttempt(
           engine: engine,
           status: 'ok',
-          query: plan.providerQuery,
+          query: query,
           count: results.length,
         ),
       );
     } catch (_) {
       attempts.add(
-        SearchAttempt(
-          engine: engine,
-          status: 'failed',
-          query: plan.providerQuery,
-        ),
+        SearchAttempt(engine: engine, status: 'failed', query: query),
       );
     }
   }
@@ -377,7 +376,9 @@ class DeviceAppServices implements AppServices {
     final phraseMatch = plan.learnedSceneTerms.isEmpty
         ? core.every(value.contains)
         : plan.matchesLearnedScene(value);
-    return (familyMatch || phraseMatch) && tags.every(value.contains);
+    final knownSubject = plan.memeIntent?.matchesKnownSubject(value) ?? false;
+    return (familyMatch || phraseMatch || knownSubject) &&
+        tags.every(value.contains);
   }
 
   @override
@@ -410,7 +411,12 @@ class DeviceAppServices implements AppServices {
     final items = <MemeAsset>[];
     for (final favorite in _store!.favorites()) {
       final url = favorite.originalUrl;
-      if (!favorite.isWeb || url == null || favorite.isPreviewOnly) continue;
+      if (!favorite.isWeb ||
+          url == null ||
+          favorite.isPreviewOnly ||
+          hasHiddenMemeSource(favorite)) {
+        continue;
+      }
       for (final cached in _store!.filesForUrl(url, previewOnly: false)) {
         if (cached.filePath == null) continue;
         items.add(cached.copyWith(favorite: true));
@@ -421,11 +427,17 @@ class DeviceAppServices implements AppServices {
   }
 
   List<MemeAsset> _filterMedia(List<MemeAsset> items, MediaFilter filter) {
-    if (filter == MediaFilter.gif)
-      items = items.where((item) => item.isGif).toList();
-    if (filter == MediaFilter.staticImage)
-      items = items.where((item) => !item.isGif).toList();
-    return items;
+    return items
+        .where(
+          (item) =>
+              !hasHiddenMemeSource(item) &&
+              switch (filter) {
+                MediaFilter.all => true,
+                MediaFilter.gif => item.isGif,
+                MediaFilter.staticImage => !item.isGif,
+              },
+        )
+        .toList();
   }
 
   @override

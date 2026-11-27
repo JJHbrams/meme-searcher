@@ -19,6 +19,7 @@ import 'package:path/path.dart' as p;
 const _generic = 'https://example.test/generic.png';
 const _scene = 'https://example.test/starleague.png';
 const _gif = 'https://example.test/whoopah.gif';
+const _crying = 'https://example.test/crying.gif';
 const _correction = '스타리그 마인 심어놓고 아 망했어요';
 
 void main() {
@@ -38,6 +39,8 @@ void main() {
           .readAsBytes(),
       _gif: await File('assets/seed-assets/approved-knuckles-tenor.gif')
           .readAsBytes(),
+      _crying: await File('assets/seed-assets/approved-knuckles-kym.gif')
+          .readAsBytes(),
     };
   });
   tearDown(() async {
@@ -54,6 +57,7 @@ void main() {
             {'originalUrl': _generic, 'title': '그냥 망했어요 리액션'},
             {'originalUrl': _scene, 'title': _correction},
             {'originalUrl': _gif, 'title': 'Whoopah Chandler Friends GIF'},
+            {'originalUrl': _crying, 'title': '우는 고양이 리액션'},
           ]),
           200,
           headers: {'content-type': 'application/json; charset=utf-8'},
@@ -67,6 +71,145 @@ void main() {
       googleSearch: (_, _) async => [],
     );
   }
+
+  test(
+    'known blocked sources cannot reach app search or MCP attachments',
+    () async {
+      FlutterSecureStorage.setMockInitialValues({'serpapi_api_key': 'fixture'});
+      const blocked = MemeAsset(
+        id: 'blocked',
+        title: '출처 검증 짤',
+        origin: 'web',
+        originalUrl: _scene,
+        sourceUrl: 'https://MEDIA.ILBE.COM./post',
+      );
+      final duplicate = blocked.copyWith(
+        id: 'duplicate',
+        sourceUrl: 'https://mirror.example/post',
+      );
+      const blockedPreview = MemeAsset(
+        id: 'blocked-preview',
+        title: '출처 검증 미리보기',
+        origin: 'web',
+        originalUrl: _crying,
+        previewUrl: 'https://cdn.megalian.com/preview',
+      );
+      const referenceOnly = MemeAsset(
+        id: 'reference-only',
+        title: '출처 검증 · 두 커뮤니티를 설명한 기사',
+        origin: 'web',
+        originalUrl: _generic,
+        sourceUrl: 'https://ilbe.com.news.example/article?topic=megalian.com',
+      );
+      final services = DeviceAppServices(
+        store: await LocalLibraryStore.open(directory: root),
+        downloader: _FixtureDownloader(files),
+        googleSearch: (_, _) async => [blocked, blockedPreview],
+        naverSearch: (_) async => [duplicate, referenceOnly],
+      );
+      const query = '출처 검증';
+      final result = await services.search(
+        const SearchRequest(query: query, scope: SearchScope.web),
+      );
+      expect(result.assets.map((asset) => asset.id), ['reference-only']);
+
+      final bridge = await MemeMcpBridge.start(services);
+      addTearDown(bridge.close);
+      final client = await _McpClient.start(
+        await services.mcpDrawerDirectory(),
+      );
+      addTearDown(client.close);
+      final remote = await client.search(query, scope: 'web');
+      expect(remote['status'], 'ok');
+      expect((remote['matches'] as List).map((match) => match['id']), [
+        'reference-only',
+      ]);
+    },
+  );
+
+  test(
+    'hidden source metadata survives storage without surfacing in the drawer',
+    () async {
+      final store = await LocalLibraryStore.open(directory: root);
+      final services = DeviceAppServices(store: store);
+      final drawer = await services.mcpDrawerDirectory();
+      final media = Directory(p.join(drawer.path, 'media'));
+      await media.create(recursive: true);
+      final file = await File(p.join(media.path, 'saved-source.png'))
+          .writeAsBytes(files[_generic]!);
+
+      final hidden = MemeAsset(
+        id: 'hidden-favorite',
+        title: '보라 부엉이',
+        origin: 'saved',
+        favorite: true,
+        filePath: file.path,
+        sourceUrl: 'https://megalian.com/archive',
+      );
+      await store.upsert(hidden);
+      await services.markRecent(hidden.id, asset: hidden);
+      await store.cacheMedia(
+        MediaFile(
+          bytes: Uint8List.fromList([...files[_scene]!, 0]),
+          path: file.path,
+          asset: const MemeAsset(
+            id: 'hidden-cache',
+            title: '출처 있는 임시 짤',
+            origin: 'web',
+            originalUrl: 'https://cdn.ilbe.com/asset.webp',
+            format: 'WEBP',
+          ),
+        ),
+        previewOnly: false,
+      );
+
+      expect(
+        (await services.library(favoritesOnly: true)).map((asset) => asset.id),
+        isNot(contains(hidden.id)),
+      );
+      expect(await services.library(recentOnly: true), isEmpty);
+      expect(await services.cachedLibrary(), isEmpty);
+      expect(store.favorites().map((asset) => asset.id), contains(hidden.id));
+      expect(store.cachedAssets(), isNotEmpty);
+      expect(await file.exists(), isTrue);
+
+      final standalone = await _McpClient.start(drawer);
+      addTearDown(standalone.close);
+      final rejected = await standalone.search('보라 부엉이', scope: 'local');
+      expect(rejected['status'], 'no_match');
+    },
+  );
+
+  test('a requested reaction reaches app web after a drawer miss', () async {
+    final instance = await app();
+    final bridge = await MemeMcpBridge.start(instance);
+    addTearDown(bridge.close);
+    final client = await _McpClient.start(await instance.mcpDrawerDirectory());
+    addTearDown(client.close);
+
+    final casual = await client.search('우는', tone: 'casual', format: 'gif');
+    expect(casual['status'], 'no_match');
+    expect(casual['scope'], 'local');
+    expect(casual['guidance'], contains('without asking'));
+
+    final drawerOnly = await client.search('우는', scope: 'local');
+    expect(drawerOnly['status'], 'no_match');
+    expect(drawerOnly['scope'], 'local');
+    expect(searches, isEmpty);
+
+    final requested = await client.search('우는', format: 'gif');
+    expect(requested['status'], 'ok');
+    expect(requested['matches'][0]['source'], 'app_web');
+    expect(requested['matches'][0]['title'], '우는 고양이 리액션');
+    expect(requested['matches'][0]['markdown'], endsWith('.gif)'));
+    expect(searches, ['우는 짤 gif']);
+
+    final noMatch = await client.search('없는 장면');
+    expect(noMatch['status'], 'no_match');
+    expect(noMatch['scope'], 'auto');
+    expect(noMatch['guidance'], isNull);
+    expect(searches, ['우는 짤 gif', '없는 장면 짤']);
+  });
 
   test(
     'stdio web recommendation and feedback persist into direct app search',
@@ -113,20 +256,20 @@ void main() {
       final matches = original['matches'] as List;
       expect(matches, hasLength(2));
       expect(matches[0]['source'], 'app_web');
-      expect(matches[0]['title'], '그냥 망했어요 리액션');
-      expect(matches[0]['markdown'], endsWith('.png)'));
-      final sceneId = matches[1]['recommendation_id'] as String;
-      final genericId = matches[0]['recommendation_id'] as String;
-      expect(searches, ['망했어요 짤']);
+      expect(matches[0]['title'], _correction);
+      expect(matches[0]['format'], 'image');
+      expect(matches[1]['markdown'], endsWith('.png)'));
+      final genericId = matches[1]['recommendation_id'] as String;
+      expect(searches, ['박정욱 망했어요']);
 
       const direct = SearchRequest(
         query: '망했어요',
         filter: MediaFilter.staticImage,
       );
-      expect((await client.feedback(sceneId, 'helpful'))['status'], 'saved');
-      expect((await first.search(direct)).assets.first.originalUrl, _scene);
-      expect((await client.feedback(sceneId, 'wrong'))['status'], 'saved');
+      expect((await client.feedback(genericId, 'helpful'))['status'], 'saved');
       expect((await first.search(direct)).assets.first.originalUrl, _generic);
+      expect((await client.feedback(genericId, 'wrong'))['status'], 'saved');
+      expect((await first.search(direct)).assets.first.originalUrl, _scene);
       expect(
         (await client.feedback('made-up', 'helpful'))['status'],
         'unknown_recommendation',
@@ -293,12 +436,12 @@ class _McpClient {
 
   Future<Map<String, dynamic>> search(
     String query, {
-    required String scope,
+    String? scope,
     String tone = 'requested',
     String format = 'any',
   }) => _call('find_reaction_meme', {
     'query': query,
-    'scope': scope,
+    'scope': ?scope,
     'tone': tone,
     'format': format,
   });

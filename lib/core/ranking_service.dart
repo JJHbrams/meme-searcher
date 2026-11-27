@@ -1,5 +1,6 @@
 // ignore_for_file: curly_braces_in_flow_control_structures, prefer_collection_literals
 
+import 'meme_source_policy.dart';
 import 'models.dart';
 import 'query_plan.dart';
 
@@ -10,6 +11,7 @@ class RankingService {
 
   List<MemeAsset> mergeAndRank(List<List<MemeAsset>> groups, QueryPlan plan) {
     final merged = <String, MemeAsset>{};
+    final hidden = <String>{};
     for (final group in groups) {
       for (final candidate in group) {
         final url = candidate.isPreviewOnly
@@ -17,6 +19,11 @@ class RankingService {
             : candidate.originalUrl;
         final address = canonicalOriginalUrl(url ?? '');
         final key = address.isEmpty ? 'local:${candidate.id}' : address;
+        if (hasHiddenMemeSource(candidate)) {
+          hidden.add(key);
+          merged.remove(key);
+        }
+        if (hidden.contains(key)) continue;
         final existing = merged[key];
         if (existing == null) {
           merged[key] = candidate;
@@ -46,7 +53,37 @@ class RankingService {
         .map((asset) => asset.copyWith(rankingScore: cheapScore(asset, plan)))
         .toList(growable: false);
     scored.sort(_stableCompare);
-    return scored;
+    if (plan.googleRecentDays == null ||
+        scored.length < 4 ||
+        !scored
+            .take(3)
+            .every((asset) => _fromGoogle(asset) && !_fromNaver(asset))) {
+      return scored;
+    }
+
+    final evergreenIndex = scored.indexWhere(
+      (asset) =>
+          asset.isWeb &&
+          _fromNaver(asset) &&
+          !_commercial(asset) &&
+          (plan.memeIntent?.candidateScore(asset) ?? 0) >= 35,
+      3,
+    );
+    if (evergreenIndex < 0) return scored;
+
+    // Keep an all-time candidate visible when the recent Google results
+    // would otherwise fill the first row. User feedback still applies later.
+    final hasDatedMeme = scored
+        .take(3)
+        .any(
+          (asset) =>
+              (plan.memeIntent?.candidateScore(asset) ?? 0) >= 35 &&
+              _hasRecentSourceDate(asset.sourceUrl, plan),
+        );
+    final balanced = scored.toList();
+    final evergreen = balanced.removeAt(evergreenIndex);
+    balanced.insert(hasDatedMeme ? 2 : 0, evergreen);
+    return balanced;
   }
 
   List<MemeAsset> probeTargets(List<MemeAsset> candidates) {
@@ -84,9 +121,19 @@ class RankingService {
     final context = plan.contextTerms
         .map(_compact)
         .where((value) => value.isNotEmpty);
-    var score = core.where((value) => text.contains(value)).length * 18;
+    final knownWebSubject = asset.isWeb && plan.memeIntent?.profile != null;
+    var score = knownWebSubject
+        ? 0
+        : core.where((value) => text.contains(value)).length * 18;
     score += tags.where((value) => text.contains(value)).length * 10;
     score += context.where((value) => text.contains(value)).length * 7;
+    final memeEvidence = plan.memeIntent?.candidateScore(asset) ?? 0;
+    score += memeEvidence;
+    if (_fromGoogle(asset) &&
+        memeEvidence >= 35 &&
+        _hasRecentSourceDate(asset.sourceUrl, plan)) {
+      score += 25;
+    }
     if ((asset.formatHint ?? '').toUpperCase() == 'GIF' ||
         (asset.originalUrl ?? '')
             .toLowerCase()
@@ -107,6 +154,56 @@ class RankingService {
     }
     return score;
   }
+
+  static bool _fromGoogle(MemeAsset asset) =>
+      asset.isWeb && asset.providerRanks.containsKey('google');
+
+  static bool _fromNaver(MemeAsset asset) =>
+      asset.isWeb && asset.providerRanks.containsKey('naver');
+
+  static bool _hasRecentSourceDate(String? url, QueryPlan plan) {
+    final days = plan.googleRecentDays;
+    final searchedAt = plan.searchedAt;
+    if (days == null || searchedAt == null) return false;
+    final uri = Uri.tryParse(url ?? '');
+    if (uri == null || !uri.hasAuthority) return false;
+    final date = _publicationDate(uri);
+    return date != null &&
+        !date.isBefore(searchedAt.subtract(Duration(days: days))) &&
+        !date.isAfter(searchedAt);
+  }
+
+  static DateTime? _publicationDate(Uri uri) {
+    if (const {
+      'x.com',
+      'www.x.com',
+      'twitter.com',
+      'www.twitter.com',
+    }.contains(uri.host)) {
+      final token = _postId.firstMatch(uri.path)?.group(1);
+      final id = token == null ? null : BigInt.tryParse(token);
+      if (id != null) {
+        // X post identifiers reserve the upper bits for milliseconds.
+        return DateTime.fromMillisecondsSinceEpoch(
+          (id >> 22).toInt() + 1288834974657,
+          isUtc: true,
+        );
+      }
+    }
+
+    final match = _datedPath.firstMatch(uri.path);
+    if (match == null) return null;
+    final day = '${match[1]}-${match[3]}-${match[4]}';
+    final parsed = DateTime.tryParse("${day}T00:00:00Z");
+    return parsed != null && parsed.toIso8601String().startsWith(day)
+        ? parsed
+        : null;
+  }
+
+  static final _postId = RegExp(r'/status/(\d{16,19})(?:/|$)');
+  static final _datedPath = RegExp(
+    r'/((?:19|20)\d{2})([-/])(\d{2})\2(\d{2})(?:/|-|$)',
+  );
 
   static String canonicalOriginalUrl(String value) {
     final uri = Uri.tryParse(value);
@@ -138,6 +235,7 @@ class RankingService {
       'smartstore.naver.com',
       'amazon.com',
       'ebay.com',
+      'etsy.com',
       'aliexpress.com',
       'taobao.com',
       'bookshop.org',

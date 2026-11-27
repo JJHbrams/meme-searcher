@@ -1,11 +1,13 @@
 import 'catalog.dart';
+import 'meme_search_rules.dart';
 import 'models.dart';
 
 String compactMemeText(String value) => value
     .toLowerCase()
     .replaceAll(RegExp(r'\s+'), '')
     .replaceAll('!', '')
-    .replaceAll('?', '');
+    .replaceAll('?', '')
+    .replaceFirst(RegExp(r'[~…．.！？，。〜～]+$'), '');
 
 class QueryPlan {
   const QueryPlan({
@@ -23,6 +25,10 @@ class QueryPlan {
     required this.similar,
     this.learnedSceneTerms = const [],
     this.familyId,
+    this.alternateNaverQuery,
+    this.memeIntent,
+    this.googleRecentDays,
+    this.searchedAt,
   });
 
   final String original;
@@ -35,10 +41,17 @@ class QueryPlan {
   final List<String> contextTerms;
   final List<String> requiredContext;
   final String providerQuery;
+  final String? alternateNaverQuery;
   final MediaFilter filter;
   final bool similar;
   final List<String> learnedSceneTerms;
   final String? familyId;
+  final MemeSearchIntent? memeIntent;
+  final int? googleRecentDays;
+  final DateTime? searchedAt;
+
+  String get naverQuery => alternateNaverQuery ?? providerQuery;
+  bool get isKorean => RegExp(r'[가-힣]').hasMatch(words);
 
   bool matchesLearnedScene(String text) {
     final required = learnedSceneTerms.length == 1 ? 1 : 2;
@@ -56,6 +69,7 @@ class QueryPlanner {
     SearchRequest request, {
     String? learnedScene,
     String? lookupQuery,
+    DateTime? now,
   }) {
     final words = <String>[];
     final rawTags = <String>[];
@@ -66,6 +80,7 @@ class QueryPlanner {
         words.add(token);
       }
     }
+    final searchedAt = now ?? DateTime.now();
     final phrase = learnedScene ?? lookupQuery ?? words.join(' ');
     final normalized = compactMemeText(phrase);
     final tagTerms = <String>[];
@@ -101,7 +116,17 @@ class QueryPlanner {
       ...?family?.aliases,
       if (request.similar) ...?family?.similarAliases,
     ];
-    final terms = <String>[if (phrase.isNotEmpty) phrase];
+    final memeIntent =
+        phrase.isNotEmpty && family == null && learnedScene == null
+        ? MemeSearchIntent.resolve(phrase, searchedAt)
+        : null;
+    final terms = <String>[
+      if (phrase.isNotEmpty)
+        memeIntent?.googleQuery ??
+            (memeIntent != null
+                ? addDefaultMemeCue(phrase, koreanCue: '밈')
+                : phrase),
+    ];
     final context = <String>[];
     final required = <String>[];
     if (family?.id == 'approved') {
@@ -111,7 +136,7 @@ class QueryPlanner {
     } else if (family?.id == 'mold-breaker') {
       terms.addAll(['짤', '디시콘', '아로나']);
       context.add('아로나');
-    } else if (RegExp(r'[가-힣]').hasMatch(phrase)) {
+    } else if (memeIntent == null && RegExp(r'[가-힣]').hasMatch(phrase)) {
       terms.add('짤');
     }
     terms.addAll(tagTerms);
@@ -121,10 +146,6 @@ class QueryPlanner {
     }
     if (tagIds.contains('helldivers')) {
       context.addAll(['헬다이버즈', 'helldivers']);
-    }
-    if (request.filter == MediaFilter.gif &&
-        !compactMemeText(phrase).contains('gif')) {
-      terms.add('gif');
     }
     const generic = {
       'gif',
@@ -153,7 +174,13 @@ class QueryPlanner {
                 .map((match) => match.group(0)!)
                 .where((term) => !generic.contains(term)),
           );
-    final providerTerms = _unique(terms).join(' ');
+    final naverBase =
+        memeIntent?.naverQuery ??
+        (memeIntent == null ? null : addDefaultMemeCue(phrase));
+    final providerQuery = _providerQuery(terms, request.filter);
+    final naverQuery = naverBase == null
+        ? null
+        : _providerQuery([naverBase, ...terms.skip(1)], request.filter);
     return QueryPlan(
       original: request.fullQuery,
       words: phrase,
@@ -164,14 +191,28 @@ class QueryPlanner {
       coreTerms: learnedTerms.isEmpty ? [...korean, ...english] : learnedTerms,
       contextTerms: _unique(context),
       requiredContext: _unique(required),
-      providerQuery: providerTerms.length > 400
-          ? providerTerms.substring(0, 400)
-          : providerTerms,
+      providerQuery: providerQuery,
+      alternateNaverQuery: naverQuery,
       filter: request.filter,
       similar: request.similar,
       learnedSceneTerms: learnedTerms,
       familyId: family?.id,
+      memeIntent: memeIntent,
+      searchedAt: searchedAt,
+      googleRecentDays:
+          rawTags.isEmpty &&
+              (memeIntent?.looksLikeUnregisteredName(phrase) ?? false)
+          ? 30
+          : null,
     );
+  }
+
+  static String _providerQuery(List<String> terms, MediaFilter filter) {
+    var query = _unique(terms).join(' ');
+    if (filter == MediaFilter.gif && !compactMemeText(query).contains('gif')) {
+      query = query.isEmpty ? 'gif' : '$query gif';
+    }
+    return query.length > 400 ? query.substring(0, 400) : query;
   }
 
   static List<String> _unique(Iterable<String> values) =>
