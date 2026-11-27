@@ -342,6 +342,7 @@ bool _matchesConcept(MemeAsset asset, QueryPlan plan) {
       .where((term) => term.isNotEmpty);
   if (tags.isNotEmpty && !tags.any(text.contains)) return false;
   if (required.isNotEmpty && !required.every(text.contains)) return false;
+  if (plan.learnedSceneTerms.isNotEmpty) return plan.matchesLearnedScene(text);
   if (core.isNotEmpty) return core.any(text.contains);
   return context.isEmpty || context.any(text.contains);
 }

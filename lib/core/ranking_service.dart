@@ -112,11 +112,8 @@ class RankingService {
     final uri = Uri.tryParse(value);
     if (uri == null || !uri.hasScheme || uri.host.isEmpty) return '';
     return uri
-        .replace(
-          scheme: uri.scheme.toLowerCase(),
-          host: uri.host.toLowerCase(),
-          fragment: '',
-        )
+        .replace(scheme: uri.scheme.toLowerCase(), host: uri.host.toLowerCase())
+        .removeFragment()
         .toString();
   }
 

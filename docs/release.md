@@ -6,14 +6,16 @@
 
 같은 태그의 Windows ZIP과 Android APK를 GitHub Assets에 올린다. Windows ZIP에는 `meme_searcher.exe`, `meme_updater.exe`, Flutter 및 플러그인 DLL, WebView2 로더, `data`, 런타임 라이선스, `README.md`, `THIRD_PARTY_NOTICES.md`, `RELEASE-BUILD.json`이 들어간다. Android 배포 파일은 `meme-searcher-v<버전>-android.apk`다.
 
+Codex용 MCP는 같은 태그에서 `meme-searcher-v<버전>-mcp.zip`으로 제공한다. ZIP에는 MCP 서버, 기본 짤, 연결 안내, 출처 고지가 들어간다. 독립 ZIP만 점검할 때는 `tools/package-mcp-release.ps1 -Tag vX.Y.Z.N`을 실행할 수 있다.
+
 ## 필수 순서
 
 1. 깨끗한 최종 커밋에서 `VERSION`을 확정하고 `git rev-list --count HEAD`로 네 번째 버전 숫자를 정한다.
 2. `tools/build-windows-release.ps1 -ExpectedTag vX.Y.Z.N`을 실행한다. 이 스크립트는 의존성, 분석, 전체 테스트, Windows Release 빌드와 PE/출처 기록을 검증한다.
 3. `tools/build-android-release.ps1 -ExpectedTag vX.Y.Z.N`으로 서명 APK를 빌드한다. Android 버전 이름도 `X.Y.Z.N`이고 버전 코드는 `N`이다.
-4. `tools/package-windows-release.ps1 -ExpectedTag vX.Y.Z.N -IncludeAndroid`를 실행한다. Windows ZIP을 새 폴더에 풀어 실행하고 Android에서 APK 설치·실행을 확인한다. `SHA256SUMS.txt`에 두 파일의 해시가 들어간다.
+4. `tools/package-windows-release.ps1 -ExpectedTag vX.Y.Z.N -IncludeAndroid`를 실행한다. Windows ZIP을 새 폴더에 풀어 실행하고 Android에서 APK 설치·실행을 확인한다. MCP ZIP을 별도 폴더에 풀어 서버를 실행한다. `SHA256SUMS.txt`에 세 파일의 해시가 들어간다.
 5. 최종 커밋에만 주석 태그를 만들고 푸시한다. 기존 태그와 릴리스를 덮어쓰지 않는다.
-6. 초안 릴리스에 Windows ZIP, Android APK, `SHA256SUMS.txt`를 올리고 업로드한 에셋의 크기·해시를 대조한 뒤 공개한다.
+6. 초안 릴리스에 Windows ZIP, Android APK, MCP ZIP, `SHA256SUMS.txt`를 올리고 업로드한 에셋의 크기·해시를 대조한 뒤 공개한다.
 7. 로그인하지 않은 상태로 asset을 내려받아 SHA-256을 다시 대조한다.
 
 태그를 푸시한 뒤 패키지 스크립트에 `-IncludeAndroid -Publish`를 함께 전달하면 `gh`가 초안 생성부터 익명 다운로드 확인까지 실행한다. API 키, 사용자 데이터, 개인 경로, PDB 파일은 소스와 배포 파일에 넣지 않는다.

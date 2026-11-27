@@ -1,0 +1,4 @@
+[mcp_servers.meme_snatcher]
+command = "node"
+args = ["tools/meme-snatcher-mcp.mjs"]
+env_vars = ["APPDATA"]

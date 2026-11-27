@@ -21,6 +21,7 @@ class QueryPlan {
     required this.providerQuery,
     required this.filter,
     required this.similar,
+    this.learnedSceneTerms = const [],
     this.familyId,
   });
 
@@ -36,7 +37,14 @@ class QueryPlan {
   final String providerQuery;
   final MediaFilter filter;
   final bool similar;
+  final List<String> learnedSceneTerms;
   final String? familyId;
+
+  bool matchesLearnedScene(String text) {
+    final required = learnedSceneTerms.length == 1 ? 1 : 2;
+    return learnedSceneTerms.where(text.contains).take(required).length ==
+        required;
+  }
 }
 
 class QueryPlanner {
@@ -44,7 +52,11 @@ class QueryPlanner {
 
   final MemeCatalog catalog;
 
-  QueryPlan plan(SearchRequest request) {
+  QueryPlan plan(
+    SearchRequest request, {
+    String? learnedScene,
+    String? lookupQuery,
+  }) {
     final words = <String>[];
     final rawTags = <String>[];
     for (final token in request.fullQuery.split(RegExp(r'\s+'))) {
@@ -54,7 +66,7 @@ class QueryPlanner {
         words.add(token);
       }
     }
-    final phrase = words.join(' ');
+    final phrase = learnedScene ?? lookupQuery ?? words.join(' ');
     final normalized = compactMemeText(phrase);
     final tagTerms = <String>[];
     final tagIds = <String>[];
@@ -133,6 +145,14 @@ class QueryPlanner {
     final korean = RegExp(r'[가-힣]').hasMatch(phrase)
         ? [compactMemeText(phrase)]
         : const <String>[];
+    final learnedTerms = learnedScene == null
+        ? const <String>[]
+        : _unique(
+            RegExp(r'[a-z0-9가-힣]{2,}')
+                .allMatches(learnedScene.toLowerCase())
+                .map((match) => match.group(0)!)
+                .where((term) => !generic.contains(term)),
+          );
     final providerTerms = _unique(terms).join(' ');
     return QueryPlan(
       original: request.fullQuery,
@@ -141,7 +161,7 @@ class QueryPlanner {
       tagTerms: _unique(tagTerms),
       tagIds: _unique(tagIds),
       expandedAliases: _unique(expanded),
-      coreTerms: [...korean, ...english],
+      coreTerms: learnedTerms.isEmpty ? [...korean, ...english] : learnedTerms,
       contextTerms: _unique(context),
       requiredContext: _unique(required),
       providerQuery: providerTerms.length > 400
@@ -149,6 +169,7 @@ class QueryPlanner {
           : providerTerms,
       filter: request.filter,
       similar: request.similar,
+      learnedSceneTerms: learnedTerms,
       familyId: family?.id,
     );
   }

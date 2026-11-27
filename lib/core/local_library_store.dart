@@ -41,6 +41,7 @@ class LocalLibraryStore {
   final Map<String, int> _pendingCopies = {};
   final Set<String> _discardableCopies = {};
   Future<void> _queue = Future.value();
+  Directory get drawerDirectory => _directory;
   Directory get _media => Directory(p.join(_directory.path, 'media'));
   Directory get _cacheDir => Directory(p.join(_directory.path, 'cache'));
   File get _index => File(p.join(_directory.path, 'library.json'));

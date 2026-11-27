@@ -9,6 +9,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'app_services.dart';
 import 'catalog.dart';
 import 'local_library_store.dart';
+import 'meme_feedback_store.dart';
 import 'models.dart';
 import 'query_plan.dart';
 import 'ranking_service.dart';
@@ -47,6 +48,7 @@ class DeviceAppServices implements AppServices {
   final Future<void> Function(String) _verifyKey;
   final Future<SerpApiQuota> Function(String) _fetchQuota;
   LocalLibraryStore? _store;
+  late final MemeFeedbackStore _feedback;
   final Future<List<MemeAsset>> Function(QueryPlan, String)? _googleSearch;
   final Future<List<MemeAsset>> Function(QueryPlan)? _naverSearch;
   final RankingService _ranking = const RankingService();
@@ -89,14 +91,62 @@ class DeviceAppServices implements AppServices {
         .map(catalog.seedToAsset)
         .where((seed) => _store!.shouldSeed(seed.id));
     await _store!.upsertAll(seeds);
+    _feedback = await MemeFeedbackStore.open(_store!.drawerDirectory);
     _initialized = true;
   }
 
   @override
-  Future<SearchResponse> search(SearchRequest request) async {
+  Future<SearchResponse> search(SearchRequest request) => _search(request);
+
+  Future<Directory> mcpDrawerDirectory() async {
+    await initialize();
+    return _store!.drawerDirectory;
+  }
+
+  Future<SearchResponse> searchMcpLibrary(String query, MediaFilter filter) =>
+      _search(
+        SearchRequest(query: query, scope: SearchScope.library, filter: filter),
+        mcpLibrary: true,
+      );
+
+  Future<void> recordMemeFeedback({
+    required String query,
+    required MemeAsset asset,
+    required MemeFeedbackKind kind,
+    String? correction,
+    String? alias,
+  }) async {
+    await initialize();
+    await _feedback.record(
+      query: _reactionSearchTerm(query) ?? query,
+      asset: asset,
+      kind: kind,
+      correction: correction,
+      alias: alias == null ? null : _reactionSearchTerm(alias) ?? alias,
+    );
+  }
+
+  String? _reactionSearchTerm(String query) =>
+      switch (compactMemeText(query.trim())) {
+        'approval' || 'approve' || 'approved' => '승인',
+        'onmyway' || '지금간다' => '좋다 지금 간다 기다려라',
+        'breakthrough' => '틀깨기',
+        _ => null,
+      };
+
+  Future<SearchResponse> _search(
+    SearchRequest request, {
+    bool mcpLibrary = false,
+  }) async {
     await initialize();
     final planner = QueryPlanner(catalog);
-    final plan = planner.plan(request);
+    final reaction = _reactionSearchTerm(request.query);
+    final feedbackQuery = reaction ?? request.query;
+    final plan = planner.plan(
+      request,
+      learnedScene: _feedback.correctedQueryFor(feedbackQuery),
+      lookupQuery: mcpLibrary ? reaction : null,
+    );
     final attempts = <SearchAttempt>[];
     final groups = <List<MemeAsset>>[];
     if (request.scope != SearchScope.web) {
@@ -106,9 +156,12 @@ class DeviceAppServices implements AppServices {
         recentOnly: request.recentOnly,
       );
       final candidates = [
-        ...local,
-        if (!request.favoritesOnly && !request.recentOnly)
+        ...local.where(
+          (asset) => !mcpLibrary || asset.origin == 'seed' || asset.favorite,
+        ),
+        if (!mcpLibrary && !request.favoritesOnly && !request.recentOnly)
           ...await cachedLibrary(filter: request.filter),
+        if (mcpLibrary) ..._cachedWebFavorites(request.filter),
       ];
       groups.add(
         candidates.where((asset) => _matchesLocal(asset, plan)).toList(),
@@ -117,7 +170,7 @@ class DeviceAppServices implements AppServices {
         SearchAttempt(
           engine: 'library',
           status: 'ok',
-          query: plan.words,
+          query: request.query,
           count: groups.last.length,
         ),
       );
@@ -151,6 +204,7 @@ class DeviceAppServices implements AppServices {
       ranked = await _probeVisual(ranked, plan);
     }
     ranked = ranked.map(_store!.applyStoredState).toList(growable: false);
+    ranked = _feedback.rerank(feedbackQuery, ranked);
     final remoteAttempts = attempts.where(
       (attempt) => attempt.engine != 'library',
     );
@@ -320,8 +374,10 @@ class DeviceAppServices implements AppServices {
         .map(compactMemeText);
     final familyMatch =
         plan.familyId != null && asset.familyId == plan.familyId;
-    return (familyMatch || core.every(value.contains)) &&
-        tags.every(value.contains);
+    final phraseMatch = plan.learnedSceneTerms.isEmpty
+        ? core.every(value.contains)
+        : plan.matchesLearnedScene(value);
+    return (familyMatch || phraseMatch) && tags.every(value.contains);
   }
 
   @override
@@ -350,6 +406,20 @@ class DeviceAppServices implements AppServices {
     return _filterMedia(_store!.cachedAssets(), filter);
   }
 
+  List<MemeAsset> _cachedWebFavorites(MediaFilter filter) {
+    final items = <MemeAsset>[];
+    for (final favorite in _store!.favorites()) {
+      final url = favorite.originalUrl;
+      if (!favorite.isWeb || url == null || favorite.isPreviewOnly) continue;
+      for (final cached in _store!.filesForUrl(url, previewOnly: false)) {
+        if (cached.filePath == null) continue;
+        items.add(cached.copyWith(favorite: true));
+        break;
+      }
+    }
+    return _filterMedia(items, filter);
+  }
+
   List<MemeAsset> _filterMedia(List<MemeAsset> items, MediaFilter filter) {
     if (filter == MediaFilter.gif)
       items = items.where((item) => item.isGif).toList();
@@ -362,6 +432,7 @@ class DeviceAppServices implements AppServices {
   Future<MediaFile> loadMedia(
     MemeAsset asset, {
     bool preferCached = true,
+    bool allowDownload = true,
   }) async {
     await initialize();
     if (_store!.isSeedDeleted(asset.id)) {
@@ -390,6 +461,7 @@ class DeviceAppServices implements AppServices {
         asset: asset.copyWith(filePath: path),
       );
     }
+    if (!allowDownload) throw StateError('Local media is unavailable.');
     final url = asset.isPreviewOnly ? asset.previewUrl : asset.originalUrl;
     if (url == null || url.isEmpty)
       throw StateError('Media has no original URL.');

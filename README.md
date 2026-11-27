@@ -8,6 +8,7 @@
 
 - **Windows 10/11 x64** · Assets의 `…-windows-x64.zip`을 풀고 `meme_searcher.exe` 실행
 - **Android** · Assets의 `…-android.apk` 설치
+- **Codex용 MCP** · 필요할 때 Assets의 `…-mcp.zip`만 받으세요. [연결 방법](docs/guide.md#codex에서-밈-쓰기)
 
 ## “좋다 지금 간다 기다려라” …헬다이버 버전이었는데?
 

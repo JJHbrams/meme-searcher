@@ -45,6 +45,8 @@ if ($ExpectedTag -and $ExpectedTag -ne $tag) { throw "Expected tag '$ExpectedTag
 
 $archiveName = "meme-searcher-$tag-windows-x64.zip"
 $archivePath = Join-Path $distDir $archiveName
+$mcpArchiveName = "meme-searcher-$tag-mcp.zip"
+$mcpArchivePath = Join-Path $distDir $mcpArchiveName
 $checksumPath = Join-Path $distDir 'SHA256SUMS.txt'
 $androidPath = $null
 $androidHash = $null
@@ -109,17 +111,21 @@ try {
             try { if ((Get-StreamSha256 $stream) -ne (Get-Sha256 $staged)) { throw "Archive entry hash differs from staged runtime: $($entry.FullName)" } } finally { $stream.Dispose() }
         }
     } finally { $zip.Dispose() }
+    $tempMcpArchive = & (Join-Path $PSScriptRoot 'package-mcp-release.ps1') -Tag $tag -OutputDirectory $tempDir
     New-Item -ItemType Directory -Path $distDir -Force | Out-Null
     if (Test-Path -LiteralPath $archivePath) { Remove-Item -LiteralPath $archivePath -Force }
     Move-Item -LiteralPath $tempArchive -Destination $archivePath
+    Move-Item -LiteralPath $tempMcpArchive -Destination $mcpArchivePath -Force
     $hash = Get-Sha256 $archivePath
     $checksums = @("$hash *$archiveName")
     if ($IncludeAndroid) { $checksums += "$androidHash *$androidName" }
+    $checksums += "$(Get-Sha256 $mcpArchivePath) *$mcpArchiveName"
     Set-Content -LiteralPath $checksumPath -Value $checksums -Encoding Ascii
 } finally {
     if ((Test-Path -LiteralPath $tempDir) -and $tempDir.StartsWith($tempRoot, [StringComparison]::OrdinalIgnoreCase)) { Remove-Item -LiteralPath $tempDir -Recurse -Force }
 }
 Write-Host "Created $archivePath"
+Write-Host "Created $mcpArchivePath"
 Write-Host "Created $checksumPath"
 if ($IncludeAndroid) { Write-Host "Verified $androidPath" }
 if ($Publish) {
@@ -133,14 +139,16 @@ if ($Publish) {
     $existing = & gh release list --repo $repo --limit 100 --json tagName | ConvertFrom-Json
     Assert-LastExitCode 'Checking for existing releases'
     if ($tag -in $existing.tagName) { throw "A release for $tag already exists; refusing overwrite." }
-    $assets = @($archivePath, $checksumPath)
+    $assets = @($archivePath, $mcpArchivePath, $checksumPath)
     if ($IncludeAndroid) { $assets += $androidPath }
     $title = if ($IncludeAndroid) { "Meme Snatcher $tag (Windows 및 Android)" } else { "Meme Snatcher $tag (Windows x64)" }
     $notesPath = Join-Path $tempRoot ("meme-searcher-notes-" + [Guid]::NewGuid().ToString('N') + '.md')
     try {
         $notes = & git -C $repoRoot -c i18n.logOutputEncoding=UTF-8 tag --list --format='%(contents)' $tag
         Assert-LastExitCode 'Reading tag annotation'
-        [IO.File]::WriteAllText($notesPath, (($notes -join "`n").Trim()), [Text.UTF8Encoding]::new($false))
+        $releaseNotes = ($notes -join "`n").Trim()
+        $releaseNotes += "`n`nCodex용 MCP가 필요하면 Assets에서 $mcpArchiveName 파일을 받으세요."
+        [IO.File]::WriteAllText($notesPath, $releaseNotes, [Text.UTF8Encoding]::new($false))
         & gh release create $tag @assets --repo $repo --verify-tag --draft --notes-file $notesPath --title $title
         Assert-LastExitCode 'Creating draft release'
     } finally {
