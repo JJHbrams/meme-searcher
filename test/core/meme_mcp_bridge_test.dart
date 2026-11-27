@@ -19,6 +19,7 @@ import 'package:path/path.dart' as p;
 const _generic = 'https://example.test/generic.png';
 const _scene = 'https://example.test/starleague.png';
 const _gif = 'https://example.test/whoopah.gif';
+const _crying = 'https://example.test/crying.gif';
 const _correction = '스타리그 마인 심어놓고 아 망했어요';
 
 void main() {
@@ -38,6 +39,8 @@ void main() {
           .readAsBytes(),
       _gif: await File('assets/seed-assets/approved-knuckles-tenor.gif')
           .readAsBytes(),
+      _crying: await File('assets/seed-assets/approved-knuckles-kym.gif')
+          .readAsBytes(),
     };
   });
   tearDown(() async {
@@ -54,6 +57,7 @@ void main() {
             {'originalUrl': _generic, 'title': '그냥 망했어요 리액션'},
             {'originalUrl': _scene, 'title': _correction},
             {'originalUrl': _gif, 'title': 'Whoopah Chandler Friends GIF'},
+            {'originalUrl': _crying, 'title': '우는 고양이 리액션'},
           ]),
           200,
           headers: {'content-type': 'application/json; charset=utf-8'},
@@ -67,6 +71,37 @@ void main() {
       googleSearch: (_, _) async => [],
     );
   }
+
+  test('a requested reaction reaches app web after a drawer miss', () async {
+    final instance = await app();
+    final bridge = await MemeMcpBridge.start(instance);
+    addTearDown(bridge.close);
+    final client = await _McpClient.start(await instance.mcpDrawerDirectory());
+    addTearDown(client.close);
+
+    final casual = await client.search('우는', tone: 'casual', format: 'gif');
+    expect(casual['status'], 'no_match');
+    expect(casual['scope'], 'local');
+    expect(casual['guidance'], contains('without asking'));
+
+    final drawerOnly = await client.search('우는', scope: 'local');
+    expect(drawerOnly['status'], 'no_match');
+    expect(drawerOnly['scope'], 'local');
+    expect(searches, isEmpty);
+
+    final requested = await client.search('우는', format: 'gif');
+    expect(requested['status'], 'ok');
+    expect(requested['matches'][0]['source'], 'app_web');
+    expect(requested['matches'][0]['title'], '우는 고양이 리액션');
+    expect(requested['matches'][0]['markdown'], endsWith('.gif)'));
+    expect(searches, ['우는 짤 gif']);
+
+    final noMatch = await client.search('없는 장면');
+    expect(noMatch['status'], 'no_match');
+    expect(noMatch['scope'], 'auto');
+    expect(noMatch['guidance'], isNull);
+    expect(searches, ['우는 짤 gif', '없는 장면 짤']);
+  });
 
   test(
     'stdio web recommendation and feedback persist into direct app search',
@@ -293,12 +328,12 @@ class _McpClient {
 
   Future<Map<String, dynamic>> search(
     String query, {
-    required String scope,
+    String? scope,
     String tone = 'requested',
     String format = 'any',
   }) => _call('find_reaction_meme', {
     'query': query,
-    'scope': scope,
+    'scope': ?scope,
     'tone': tone,
     'format': format,
   });
