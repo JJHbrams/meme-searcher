@@ -20,6 +20,7 @@ class _MagicConchScreenState extends State<MagicConchScreen> {
   final _windowsController = Platform.isAndroid ? null : WebviewController();
   MethodChannel? _androidChannel;
   StreamSubscription<LoadingState>? _loading;
+  StreamSubscription<dynamic>? _webMessages;
   late final AppLifecycleListener _lifecycle;
   late final _ready = _openWindows();
 
@@ -74,6 +75,16 @@ class _MagicConchScreenState extends State<MagicConchScreen> {
     if (!mounted) return false;
     await controller.initialize();
     if (!mounted) return false;
+    _webMessages = controller.webMessage.listen((message) {
+      if (message is Map && message['type'] == 'openWillowJingle') {
+        unawaited(
+          launchUrl(
+            Uri.parse('https://www.youtube.com/watch?v=f5v2xcBNNic'),
+            mode: LaunchMode.externalApplication,
+          ),
+        );
+      }
+    });
     _loading = controller.loadingState.listen((state) {
       if (state == LoadingState.navigationCompleted) {
         unawaited(_syncAudioFocus());
@@ -93,6 +104,7 @@ class _MagicConchScreenState extends State<MagicConchScreen> {
   void dispose() {
     _lifecycle.dispose();
     unawaited(_loading?.cancel());
+    unawaited(_webMessages?.cancel());
     unawaited(_windowsController?.dispose());
     super.dispose();
   }

@@ -336,6 +336,7 @@ private class MagicConchPlatformView(
         settings.allowUniversalAccessFromFileURLs = false
         settings.allowFileAccessFromFileURLs = false
         settings.mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_NEVER_ALLOW
+        settings.mediaPlaybackRequiresUserGesture = false
         webViewClient = MagicConchClient(context) { applyForegroundState() }
     }
 
@@ -377,8 +378,23 @@ private class MagicConchClient(
     private val context: Context,
     private val onPageFinished: () -> Unit
 ) : WebViewClient() {
-    override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean =
-        request.url.host != "conch.example"
+    override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+        val uri = request.url
+        if (isLocal(uri)) return false
+        if (request.isForMainFrame && isOfficialJingleLink(uri)) {
+            // The in-page fallback deliberately leaves the locked-down WebView.
+            try {
+                context.startActivity(Intent(Intent.ACTION_VIEW, uri))
+            } catch (_: ActivityNotFoundException) {
+                // The visible URL remains available for copying if no browser
+                // can handle it on this device.
+            }
+            return true
+        }
+        // Embedded navigation is limited to the one official player.  A frame
+        // cannot turn into an arbitrary browser surface.
+        return request.isForMainFrame || !isYouTubePlayerResource(uri)
+    }
 
     override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? =
         localResponse(request.url)
@@ -395,7 +411,8 @@ private class MagicConchClient(
     }
 
     private fun localResponse(uri: Uri): WebResourceResponse? {
-        if (uri.scheme != "https" || uri.host != "conch.example") return forbidden()
+        if (isYouTubePlayerResource(uri)) return null
+        if (!isLocal(uri)) return forbidden()
         val requested = uri.path?.removePrefix("/") ?: return forbidden()
         if (requested != "index.html" && !requested.startsWith("assets/")) return forbidden()
         if (requested.split('/').any { it.isBlank() || it == "." || it == ".." || it.contains('\\') }) return forbidden()
@@ -421,4 +438,33 @@ private class MagicConchClient(
     private fun forbidden() = response(403, "Forbidden")
     private fun notFound() = response(404, "Not Found")
     private fun response(status: Int, reason: String) = WebResourceResponse("text/plain", "UTF-8", status, reason, emptyMap(), "".byteInputStream())
+
+    private fun isLocal(uri: Uri) = uri.scheme == "https" && uri.host == "conch.example"
+
+    private fun isOfficialJingleLink(uri: Uri): Boolean =
+        uri.scheme == "https" &&
+            uri.host == "www.youtube.com" &&
+            uri.path == "/watch" &&
+            uri.getQueryParameter("v") == JINGLE_VIDEO_ID
+
+    // Allow the remote scripts, artwork and media used by the embedded player.
+    private fun isYouTubePlayerResource(uri: Uri): Boolean {
+        if (uri.scheme != "https") return false
+        val host = uri.host?.lowercase() ?: return false
+        val path = uri.path.orEmpty()
+        return when (host) {
+            "www.youtube.com" ->
+                path == "/embed/$JINGLE_VIDEO_ID" ||
+                    path.startsWith("/s/player/") ||
+                    path.startsWith("/s/_/") ||
+                    path.startsWith("/youtubei/") ||
+                    path.startsWith("/api/")
+            "youtubei.googleapis.com", "i.ytimg.com", "s.ytimg.com", "yt3.ggpht.com", "www.gstatic.com" -> true
+            else -> host == "googlevideo.com" || host.endsWith(".googlevideo.com")
+        }
+    }
+
+    private companion object {
+        const val JINGLE_VIDEO_ID = "f5v2xcBNNic"
+    }
 }

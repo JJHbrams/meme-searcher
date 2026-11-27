@@ -181,16 +181,7 @@ class DeviceAppServices implements AppServices {
       groups.addAll(remote.groups);
       attempts.addAll(remote.attempts);
     }
-    var ranked = _ranking
-        .mergeAndRank(groups, plan)
-        .where(
-          (asset) =>
-              request.filter != MediaFilter.gif ||
-              !asset.verified ||
-              asset.motionVerified ||
-              asset.isGif,
-        )
-        .toList(growable: false);
+    var ranked = _ranking.mergeAndRank(groups, plan);
     // Only web candidates carry the user's exact words into a future cache
     // record. A local cache search must not rewrite its original provenance.
     ranked = ranked
@@ -203,6 +194,12 @@ class DeviceAppServices implements AppServices {
     if (request.scope != SearchScope.library &&
         (plan.familyId != null || request.filter == MediaFilter.gif)) {
       ranked = await _probeVisual(ranked, plan);
+    }
+    if (request.filter != MediaFilter.all) {
+      ranked = _filterMedia(
+        await _resolveSearchFormats(ranked),
+        request.filter,
+      );
     }
     ranked = ranked.map(_store!.applyStoredState).toList(growable: false);
     ranked = _feedback.rerank(feedbackQuery, ranked);
@@ -220,11 +217,30 @@ class DeviceAppServices implements AppServices {
     );
   }
 
+  Future<List<MemeAsset>> _resolveSearchFormats(List<MemeAsset> ranked) async {
+    final resolved = <String, String>{};
+    await Future.wait<void>(
+      ranked.where((asset) => asset.isWeb && asset.displayFormat == null).map((
+        asset,
+      ) async {
+        final format = await probeWebFormat(asset);
+        if (format != null) resolved[asset.id] = format;
+      }),
+    ).timeout(const Duration(seconds: 4), onTimeout: () => const <void>[]);
+    return [
+      for (final asset in ranked)
+        if (resolved[asset.id] case final format?)
+          asset.copyWith(formatHint: format)
+        else
+          asset,
+    ];
+  }
+
   // Reuse paid provider responses while rebuilding local matches from the
   // current drawer. A promotion or eviction must be visible immediately.
   Future<_CachedSearch> _webCandidates(QueryPlan plan) async {
     final cacheKey =
-        '${plan.filter.wireName}|${plan.similar}|${plan.isKorean}|'
+        '${plan.filter == MediaFilter.gif}|${plan.similar}|${plan.isKorean}|'
         '${plan.providerQuery}|${plan.naverQuery}|${plan.googleRecentDays}';
     final cutoff = DateTime.now().subtract(const Duration(seconds: 60));
     _cache.removeWhere((_, value) => value.at.isBefore(cutoff));
@@ -285,7 +301,15 @@ class DeviceAppServices implements AppServices {
         return null;
       final asset = targets[next++];
       try {
-        final media = await loadMedia(asset);
+        final url = asset.isPreviewOnly ? asset.previewUrl : asset.originalUrl;
+        if (url == null || url.isEmpty) return null;
+        // Only opening a result should add a new entry to the temporary shelf.
+        final media = await _loadWebImage(
+          asset,
+          url,
+          previewOnly: asset.isPreviewOnly,
+          cacheResult: false,
+        );
         final tags = <String>{
           ...plan.tagIds,
           ...plan.tagTerms,
@@ -434,7 +458,8 @@ class DeviceAppServices implements AppServices {
               switch (filter) {
                 MediaFilter.all => true,
                 MediaFilter.gif => item.isGif,
-                MediaFilter.staticImage => !item.isGif,
+                MediaFilter.staticImage =>
+                  !item.isGif && (!item.isWeb || item.displayFormat != null),
               },
         )
         .toList();
@@ -485,15 +510,21 @@ class DeviceAppServices implements AppServices {
     );
   }
 
-  Future<MediaFile?> _readLocal(MemeAsset asset, String path) async {
+  Future<MediaFile?> _readLocal(
+    MemeAsset asset,
+    String path, {
+    bool touchCache = true,
+  }) async {
     try {
       final bytes = await File(path).readAsBytes();
       // A web candidate can resolve to an existing cache file. In that case
       // refresh both LRU access and the exact query that produced this hit.
-      await _store!.touchCached(
-        path,
-        submittedQuery: asset.isWeb ? asset.submittedQuery : null,
-      );
+      if (touchCache) {
+        await _store!.touchCached(
+          path,
+          submittedQuery: asset.isWeb ? asset.submittedQuery : null,
+        );
+      }
       return MediaFile(
         bytes: bytes,
         path: path,
@@ -543,6 +574,7 @@ class DeviceAppServices implements AppServices {
     String url, {
     required bool previewOnly,
     bool reuse = true,
+    bool cacheResult = true,
   }) async {
     await initialize();
     if (reuse) {
@@ -563,9 +595,15 @@ class DeviceAppServices implements AppServices {
           isPreviewOnly: item.isPreviewOnly,
           aliases: {...item.aliases, ...asset.aliases}.toList(),
         );
-        final local = await _readLocal(snapshot, item.filePath!);
+        final local = await _readLocal(
+          snapshot,
+          item.filePath!,
+          touchCache: cacheResult,
+        );
         if (local != null) {
-          if (!previewOnly) await _refreshRecentOriginal(local.asset);
+          if (cacheResult && !previewOnly) {
+            await _refreshRecentOriginal(local.asset);
+          }
           return local;
         }
       }
@@ -591,10 +629,9 @@ class DeviceAppServices implements AppServices {
       inspectionStatus: inspection.animated ? 'animated' : 'static',
       inspectionReason: inspection.reason,
     );
-    final cached = await _store!.cacheMedia(
-      MediaFile(bytes: bytes, path: '', asset: inspected),
-      previewOnly: previewOnly,
-    );
+    final media = MediaFile(bytes: bytes, path: '', asset: inspected);
+    if (!cacheResult) return media;
+    final cached = await _store!.cacheMedia(media, previewOnly: previewOnly);
     if (!previewOnly) await _refreshRecentOriginal(cached.asset);
     return cached;
   }

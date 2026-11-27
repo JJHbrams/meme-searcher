@@ -25,54 +25,105 @@ void main() {
     if (await root.exists()) await root.delete(recursive: true);
   });
 
-  test('GIF search auto-probes into temporary cache and local search stays offline', () async {
-    final downloads = _Downloader({'https://example.test/original.gif': _gifA});
-    var webRequests = 0;
-    final app = await _app(
-      root,
-      downloader: downloads,
-      naverSearch: (_) async {
-        webRequests++;
-        return [
-          _web('provider-auto-probe', title: 'auto probe wapa', gif: true),
-        ];
-      },
-    );
-    final remote = await app.search(
-      const SearchRequest(
+  test(
+    'automatic GIF inspection leaves the drawer and recent history alone',
+    () async {
+      final downloads = _Downloader({
+        'https://example.test/original.gif': _gifA,
+      });
+      var webRequests = 0;
+      final app = await _app(
+        root,
+        downloader: downloads,
+        naverSearch: (_) async {
+          webRequests++;
+          return [
+            _web('provider-auto-probe', title: 'auto probe wapa', gif: true),
+          ];
+        },
+      );
+      final remote = await app.search(
+        const SearchRequest(
+          query: 'wapa',
+          scope: SearchScope.web,
+          filter: MediaFilter.gif,
+        ),
+      );
+      expect(remote.assets, isNotEmpty);
+      expect(remote.assets.single.verified, isTrue);
+      expect(remote.assets.single.filePath, isNull);
+      expect(
+        downloads.downloads['https://example.test/original.gif'],
+        1,
+        reason: 'GIF search must exercise the bounded auto-probe path',
+      );
+      expect(await app.cachedLibrary(), isEmpty);
+      expect(await app.library(recentOnly: true), isEmpty);
+      expect(
+        (await app.library()).map((asset) => asset.title),
+        isNot(contains('auto probe wapa')),
+        reason: 'probing never puts a result on the permanent shelf',
+      );
+      const librarySearch = SearchRequest(
         query: 'wapa',
-        scope: SearchScope.web,
-        filter: MediaFilter.gif,
-      ),
-    );
-    expect(remote.assets, isNotEmpty);
-    expect(
-      downloads.downloads['https://example.test/original.gif'],
-      1,
-      reason: 'GIF search must exercise the bounded auto-probe path',
-    );
-    expect(
-      (await app.cachedLibrary()).map((asset) => asset.title),
-      contains('auto probe wapa'),
-    );
-    expect(
-      (await app.library()).map((asset) => asset.title),
-      isNot(contains('auto probe wapa')),
-      reason: 'probing never puts a result on the permanent shelf',
-    );
-    final local = await app.search(
-      const SearchRequest(query: 'wapa', scope: SearchScope.library),
-    );
-    expect(
-      local.assets.map((asset) => asset.title),
-      contains('auto probe wapa'),
-    );
-    expect(
-      webRequests,
-      1,
-      reason: 'the library scope must not call a provider',
-    );
-  });
+        scope: SearchScope.library,
+      );
+      expect((await app.search(librarySearch)).assets, isEmpty);
+
+      await app.loadMedia(remote.assets.single);
+      final local = await app.search(librarySearch);
+      expect((await app.cachedLibrary()).single.title, 'auto probe wapa');
+      expect(await app.library(recentOnly: true), isEmpty);
+      expect(
+        local.assets.map((asset) => asset.title),
+        contains('auto probe wapa'),
+      );
+      expect(
+        webRequests,
+        1,
+        reason: 'the library scope must not call a provider',
+      );
+    },
+  );
+
+  test(
+    'web filters use media type and reuse the unfiltered provider request',
+    () async {
+      const gifUrl = 'https://example.test/gif-without-extension';
+      const pngUrl = 'https://example.test/still.png';
+      final downloads = _Downloader({gifUrl: _gifA, pngUrl: _png});
+      final providerFilters = <MediaFilter>[];
+      final app = await _app(
+        root,
+        downloader: downloads,
+        naverSearch: (plan) async {
+          providerFilters.add(plan.filter);
+          return [
+            _web('gif-result', title: 'GIF result', original: gifUrl),
+            _web('still-result', title: 'Still result', original: pngUrl),
+          ];
+        },
+      );
+      Future<Set<String>> search(MediaFilter filter) async {
+        final response = await app.search(
+          SearchRequest(
+            query: 'test scene',
+            scope: SearchScope.web,
+            filter: filter,
+          ),
+        );
+        return response.assets.map((asset) => asset.id).toSet();
+      }
+
+      expect(await search(MediaFilter.all), {'gif-result', 'still-result'});
+      expect(await search(MediaFilter.staticImage), {'still-result'});
+      expect(await search(MediaFilter.gif), {'gif-result'});
+      expect(await search(MediaFilter.all), {'gif-result', 'still-result'});
+      expect(providerFilters, [MediaFilter.all, MediaFilter.gif]);
+      expect(await app.cachedLibrary(), isEmpty);
+      expect(await app.library(recentOnly: true), isEmpty);
+    },
+  );
 
   test(
     'new provider snapshot resolves cached original without another download',
@@ -377,6 +428,14 @@ class _Downloader extends SafeMediaDownloader {
   _Downloader(this.responses);
   final Map<String, Uint8List> responses;
   final Map<String, int> downloads = {};
+
+  @override
+  Future<Uint8List> readPrefix(String url) async {
+    final bytes = responses[url];
+    if (bytes == null) throw StateError('No offline response for $url');
+    return bytes;
+  }
+
   @override
   Future<Uint8List> download(String url) async {
     downloads.update(url, (count) => count + 1, ifAbsent: () => 1);
@@ -392,3 +451,6 @@ final Uint8List _gifA = Uint8List.fromList(
 final Uint8List _gifB = Uint8List.fromList([..._gifA, 1]);
 final Uint8List _gifC = Uint8List.fromList([..._gifA, 2]);
 final Uint8List _gifD = Uint8List.fromList([..._gifA, 3]);
+final Uint8List _png = base64Decode(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aO5sAAAAASUVORK5CYII=',
+);

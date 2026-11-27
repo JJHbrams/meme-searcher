@@ -45,7 +45,8 @@ class _SearchScreenState extends State<SearchScreen> {
   MediaFilter _filter = MediaFilter.all;
   bool _similar = false;
   bool _loading = true;
-  bool _hasSearched = false;
+  SearchRequest? _submittedSearch;
+  bool get _hasSearched => _submittedSearch != null;
   bool _cacheExpanded = false;
   bool _showSearchOptions = false;
   bool _selectionMode = false;
@@ -127,6 +128,33 @@ class _SearchScreenState extends State<SearchScreen> {
       _searchFocus.requestFocus();
       return;
     }
+    await _runSearch(request, recordHistory: true);
+  }
+
+  Future<void> _selectMediaFilter(MediaFilter filter) async {
+    if (_filter == filter) return;
+    final submitted = _submittedSearch;
+    if (submitted == null) {
+      setState(() => _filter = filter);
+      if (_navMode != _NavMode.home) await _loadPage();
+      return;
+    }
+    await _runSearch(
+      SearchRequest(
+        query: submitted.query,
+        scope: submitted.scope,
+        filter: filter,
+        similar: submitted.similar,
+        tags: submitted.tags,
+      ),
+      recordHistory: false,
+    );
+  }
+
+  Future<void> _runSearch(
+    SearchRequest request, {
+    required bool recordHistory,
+  }) async {
     final serial = ++_searchSerial;
     _toTop();
     setState(() {
@@ -134,11 +162,12 @@ class _SearchScreenState extends State<SearchScreen> {
       _loading = true;
       _error = null;
       _assets = [];
-      _hasSearched = true;
+      _submittedSearch = request;
+      _filter = request.filter;
       _exitSelectionMode();
     });
     try {
-      if (request.fullQuery.isNotEmpty) {
+      if (recordHistory && request.fullQuery.isNotEmpty) {
         try {
           await widget.services.recordSearch(request.fullQuery);
         } catch (_) {
@@ -217,7 +246,7 @@ class _SearchScreenState extends State<SearchScreen> {
     _similar = false;
     _showSearchOptions = false;
     _navMode = value;
-    _hasSearched = false;
+    _submittedSearch = null;
     _assets = [];
     _cachedAssets = [];
     _cacheExpanded = false;
@@ -785,10 +814,7 @@ class _SearchScreenState extends State<SearchScreen> {
               (item) => ChoiceChip(
                 label: Text(item.$2),
                 selected: _filter == item.$1,
-                onSelected: (_) {
-                  setState(() => _filter = item.$1);
-                  if (_navMode != _NavMode.home && !_hasSearched) _loadPage();
-                },
+                onSelected: (_) => _selectMediaFilter(item.$1),
               ),
             )
             .toList(),
